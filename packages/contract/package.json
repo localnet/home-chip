@@ -1,0 +1,27 @@
+{
+  "name": "@home-chip/contract",
+  "version": "0.0.1",
+  "description": "HomeChip - Contract",
+  "author": "Alejandro Ojeda Gutiérrez",
+  "license": "EUPL-1.2",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/localnet/home-chip.git",
+    "directory": "packages/contract"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "type": "tsc --noEmit",
+    "test": "node --test"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.0"
+  }
+}
