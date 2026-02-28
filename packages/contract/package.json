@@ -21,6 +21,9 @@
     "type": "tsc --noEmit",
     "test": "node --test"
   },
+  "dependencies": {
+    "valibot": "^1.2.0"
+  },
   "devDependencies": {
     "@types/node": "^25.3.0"
   }
