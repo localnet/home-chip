@@ -1,0 +1,24 @@
+{
+  "name": "@home-chip/registry",
+  "version": "0.0.1",
+  "description": "HomeChip - Registry",
+  "author": "Alejandro Ojeda Gutiérrez",
+  "license": "EUPL-1.2",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/localnet/home-chip.git",
+    "directory": "packages/registry"
+  },
+  "type": "module",
+  "scripts": {
+    "type": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "@home-chip/contract": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0"
+  }
+}

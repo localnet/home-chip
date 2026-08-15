@@ -1,0 +1,18 @@
+[
+  {
+    "label": "Check",
+    "command": "npm run check"
+  },
+  {
+    "label": "Type",
+    "command": "npm run --workspaces type"
+  },
+  {
+    "label": "Test",
+    "command": "npm run --workspaces test"
+  },
+  {
+    "label": "Start Hub",
+    "command": "npm run --workspace=@home-chip/hub start"
+  }
+]

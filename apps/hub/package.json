@@ -1,0 +1,33 @@
+{
+  "name": "@home-chip/hub",
+  "version": "0.0.1",
+  "description": "HomeChip - Hub",
+  "author": "Alejandro Ojeda Gutiérrez",
+  "license": "EUPL-1.2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/localnet/home-chip.git",
+    "directory": "apps/hub"
+  },
+  "type": "module",
+  "engines": {
+    "node": ">=26.0.0"
+  },
+  "scripts": {
+    "type": "tsc --noEmit",
+    "test": "node --test \"test/**/*.test.ts\"",
+    "start": "node --env-file-if-exists=.env src/main.ts"
+  },
+  "dependencies": {
+    "@home-chip/config": "*",
+    "@home-chip/contract": "*",
+    "@home-chip/database": "*",
+    "@home-chip/logger": "*",
+    "@home-chip/matter": "*",
+    "@home-chip/registry": "*",
+    "@home-chip/server": "*"
+  },
+  "devDependencies": {
+    "@types/node": "^26.0.0"
+  }
+}

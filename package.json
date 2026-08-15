@@ -1,0 +1,36 @@
+{
+  "name": "home-chip",
+  "version": "0.0.1",
+  "description": "HomeChip",
+  "author": "Alejandro Ojeda Gutiérrez",
+  "license": "EUPL-1.2",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/localnet/home-chip.git"
+  },
+  "type": "module",
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "^26.0.0",
+      "onFail": "error"
+    },
+    "packageManager": {
+      "name": "npm",
+      "version": "^11.0.0",
+      "onFail": "error"
+    }
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "check": "biome check --write ."
+  },
+  "devDependencies": {
+    "@biomejs/biome": "2.5.8",
+    "typescript": "7.0.2"
+  }
+}

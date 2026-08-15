@@ -1,0 +1,11 @@
+[
+  {
+    "label": "Debug Hub",
+    "adapter": "JavaScript",
+    "type": "node",
+    "request": "launch",
+    "runtimeExecutable": "npm",
+    "runtimeArgs": ["run", "--workspace=@home-chip/hub", "start"],
+    "skipFiles": ["<node_internals>/**"]
+  }
+]
