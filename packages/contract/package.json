@@ -12,11 +12,15 @@
   },
   "type": "module",
   "exports": {
-    "./common/*.ts": "./src/common/*.ts"
+    "./common/*.ts": "./src/common/*.ts",
+    "./endpoint/*.ts": "./src/endpoint/*.ts"
   },
   "scripts": {
     "type": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
+  },
+  "dependencies": {
+    "valibot": "^1.4.2"
   },
   "devDependencies": {
     "@types/node": "^26.0.0"
