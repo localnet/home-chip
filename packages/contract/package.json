@@ -11,6 +11,9 @@
     "directory": "packages/contract"
   },
   "type": "module",
+  "exports": {
+    "./common/*.ts": "./src/common/*.ts"
+  },
   "scripts": {
     "type": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
