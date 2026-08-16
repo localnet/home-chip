@@ -18,7 +18,8 @@
     "./endpoint/*.ts": "./src/endpoint/*.ts",
     "./logger/*.ts": "./src/logger/*.ts",
     "./node/*.ts": "./src/node/*.ts",
-    "./room/*.ts": "./src/room/*.ts"
+    "./room/*.ts": "./src/room/*.ts",
+    "./server/*.ts": "./src/server/*.ts"
   },
   "scripts": {
     "type": "tsc --noEmit",
