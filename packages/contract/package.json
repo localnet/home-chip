@@ -19,7 +19,9 @@
     "./logger/*.ts": "./src/logger/*.ts",
     "./node/*.ts": "./src/node/*.ts",
     "./room/*.ts": "./src/room/*.ts",
-    "./server/*.ts": "./src/server/*.ts"
+    "./server/*.ts": "./src/server/*.ts",
+    "./events.ts": "./src/events.ts",
+    "./snapshot.ts": "./src/snapshot.ts"
   },
   "scripts": {
     "type": "tsc --noEmit",
