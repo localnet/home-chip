@@ -59,7 +59,7 @@ export const validateGetInfoParams = (input: unknown): GetInfoParams => parseOrT
  * The 255-character cap is the spec's maximum for one product's QR payload, counted with the "MT:"
  * prefix (Core § 5.1.3.2). The `*` that joins a concatenated payload is admitted on purpose: such
  * a code is well formed and names several devices, which the matter adapter rejects with an
- * `AmbiguousSetupCodeError` telling the client to split it — a better answer than calling the code
+ * `SetupCodeAmbiguousError` telling the client to split it — a better answer than calling the code
  * malformed here.
  */
 const setupCodeSchema = v.union(

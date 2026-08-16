@@ -36,7 +36,7 @@ export class CommissioningFailedError extends IntegrationError {
  * raised by the matter adapter rather than by the schema, since counting the payloads means
  * decoding Base38, which is the SDK's job and not a shape check.
  */
-export class AmbiguousSetupCodeError extends ValidationError {
+export class SetupCodeAmbiguousError extends ValidationError {
     constructor(deviceCount: number) {
         super(`Setup code carries ${deviceCount} devices; provide the code of a single device`, {
             data: { deviceCount },

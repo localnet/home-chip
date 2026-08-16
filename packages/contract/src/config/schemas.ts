@@ -69,7 +69,7 @@ const serverConfigSchema = strictSection({
 export type ServerConfig = v.InferOutput<typeof serverConfigSchema>;
 
 // ---------------------------------------------------------------------------
-// logging
+// logger
 
 /**
  * `<integer><unit>`, matching the `FileSize` template type of rotating-file-stream, whose units
@@ -78,7 +78,7 @@ export type ServerConfig = v.InferOutput<typeof serverConfigSchema>;
  */
 const FILE_SIZE_PATTERN = /^\d+[BKMG]$/;
 
-const loggingConfigSchema = strictSection({
+const loggerConfigSchema = strictSection({
     /** Minimum severity written to disk; lines below it are dropped silently. */
     level: v.optional(v.picklist(Object.values(LogLevel)), LogLevel.Info),
 
@@ -102,7 +102,7 @@ const loggingConfigSchema = strictSection({
     ),
 });
 
-export type LoggingConfig = v.InferOutput<typeof loggingConfigSchema>;
+export type LoggerConfig = v.InferOutput<typeof loggerConfigSchema>;
 
 // ---------------------------------------------------------------------------
 // matter
@@ -133,7 +133,7 @@ const configSchema = v.pipe(
     v.check((input) => !Array.isArray(input), "config must be a JSON object, not an array"),
     strictSection({
         server: v.optional(serverConfigSchema, {}),
-        logging: v.optional(loggingConfigSchema, {}),
+        logger: v.optional(loggerConfigSchema, {}),
         matter: v.optional(matterConfigSchema, {}),
     }),
 );

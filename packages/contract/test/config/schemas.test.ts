@@ -7,7 +7,7 @@ import { LogLevel } from "../../src/logger/types.ts";
 
 const DEFAULTS = {
     server: { host: "0.0.0.0", port: 8080 },
-    logging: { level: LogLevel.Info, maxFileSize: "10M", maxFiles: 5 },
+    logger: { level: LogLevel.Info, maxFileSize: "10M", maxFiles: 5 },
     matter: { networkInterface: null },
 };
 
@@ -15,7 +15,7 @@ describe("config/schemas", () => {
     describe("defaults", () => {
         test("an absent section and an empty one both yield the full defaults", () => {
             assert.deepEqual(validateConfig({}), DEFAULTS);
-            assert.deepEqual(validateConfig({ server: {}, logging: {}, matter: {} }), DEFAULTS);
+            assert.deepEqual(validateConfig({ server: {}, logger: {}, matter: {} }), DEFAULTS);
         });
 
         test("overriding one field leaves its siblings at their defaults", () => {
@@ -44,27 +44,27 @@ describe("config/schemas", () => {
         });
     });
 
-    describe("logging", () => {
+    describe("logger", () => {
         test("level takes any of the six matter.js levels", () => {
             for (const level of Object.values(LogLevel)) {
-                assert.doesNotThrow(() => validateConfig({ logging: { level } }));
+                assert.doesNotThrow(() => validateConfig({ logger: { level } }));
             }
         });
 
         test("maxFileSize takes an integer and one of the four units", () => {
             for (const maxFileSize of ["100B", "10K", "10M", "1G"]) {
-                assert.doesNotThrow(() => validateConfig({ logging: { maxFileSize } }));
+                assert.doesNotThrow(() => validateConfig({ logger: { maxFileSize } }));
             }
         });
 
         test("rejects an unknown level, a malformed size and a maxFiles below one", () => {
-            assert.throws(() => validateConfig({ logging: { level: "verbose" } }), ValidationError);
+            assert.throws(() => validateConfig({ logger: { level: "verbose" } }), ValidationError);
             // No unit, no number, a unit the library does not take, and the lowercase form.
             for (const maxFileSize of ["10", "M", "10T", "10m"]) {
-                assert.throws(() => validateConfig({ logging: { maxFileSize } }), ValidationError);
+                assert.throws(() => validateConfig({ logger: { maxFileSize } }), ValidationError);
             }
             for (const maxFiles of [0, -1, 5.5]) {
-                assert.throws(() => validateConfig({ logging: { maxFiles } }), ValidationError);
+                assert.throws(() => validateConfig({ logger: { maxFiles } }), ValidationError);
             }
         });
     });
@@ -88,12 +88,12 @@ describe("config/schemas", () => {
         assert.throws(() => validateConfig({ serverr: {} }), ValidationError);
         assert.throws(() => validateConfig({ server: { prot: 9000 } }), ValidationError);
         assert.throws(
-            () => validateConfig({ logging: { maxsize: "10M" } }),
+            () => validateConfig({ logger: { maxsize: "10M" } }),
             (error: unknown) => {
                 assert.equal(error instanceof ValidationError, true);
                 assert.deepEqual((error as ValidationError).data?.issues, [
                     {
-                        path: "logging.maxsize",
+                        path: "logger.maxsize",
                         message: 'unknown key "maxsize", expected one of: level, maxFileSize, maxFiles',
                     },
                 ]);

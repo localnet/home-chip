@@ -4,13 +4,13 @@ import { describe, test } from "node:test";
 import type { AppError } from "../../src/common/errors.ts";
 import { createNodeId } from "../../src/common/ids.ts";
 import {
-    AmbiguousSetupCodeError,
     CommissioningFailedError,
     DecommissioningFailedError,
     DeviceAlreadyCommissionedError,
     NodeAsleepError,
     NodeNotFoundError,
     NodeOfflineError,
+    SetupCodeAmbiguousError,
 } from "../../src/node/errors.ts";
 
 const id = createNodeId();
@@ -41,7 +41,7 @@ const CASES: readonly { error: AppError; code: string; data?: Record<string, unk
         code: "CONFLICT_ERROR",
     },
     {
-        error: new AmbiguousSetupCodeError(3),
+        error: new SetupCodeAmbiguousError(3),
         code: "VALIDATION_ERROR",
         data: { deviceCount: 3 },
     },

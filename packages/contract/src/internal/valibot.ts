@@ -13,7 +13,10 @@ import { type EndpointId, isUuidV7, type NodeId, type RoomId } from "../common/i
 /**
  * Schemas for the branded identifiers. The runtime check is the format guard from
  * `common/ids.ts`; the brand comes from the type argument, so a parsed value arrives branded
- * with no cast at the call site:
+ * with no cast at the call site.
+ *
+ * The message names no field, unlike the rest of the contract's, because one schema serves every
+ * identifier field there is. The failing field reaches the client in the issue's path either way:
  *
  *     const params = v.object({ id: nodeIdSchema, seconds: ... });
  *     type Params = v.InferOutput<typeof params>;  // { id: NodeId; seconds: number }
