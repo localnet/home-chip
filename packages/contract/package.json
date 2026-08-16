@@ -14,7 +14,8 @@
   "exports": {
     "./common/*.ts": "./src/common/*.ts",
     "./endpoint/*.ts": "./src/endpoint/*.ts",
-    "./node/*.ts": "./src/node/*.ts"
+    "./node/*.ts": "./src/node/*.ts",
+    "./room/*.ts": "./src/room/*.ts"
   },
   "scripts": {
     "type": "tsc --noEmit",
