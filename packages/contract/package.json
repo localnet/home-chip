@@ -14,6 +14,7 @@
   "exports": {
     "./common/*.ts": "./src/common/*.ts",
     "./endpoint/*.ts": "./src/endpoint/*.ts",
+    "./logger/*.ts": "./src/logger/*.ts",
     "./node/*.ts": "./src/node/*.ts",
     "./room/*.ts": "./src/room/*.ts"
   },
