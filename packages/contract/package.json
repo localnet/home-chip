@@ -13,6 +13,7 @@
   "type": "module",
   "exports": {
     "./common/*.ts": "./src/common/*.ts",
+    "./config/*.ts": "./src/config/*.ts",
     "./endpoint/*.ts": "./src/endpoint/*.ts",
     "./logger/*.ts": "./src/logger/*.ts",
     "./node/*.ts": "./src/node/*.ts",
