@@ -11,12 +11,16 @@
     "directory": "packages/logger"
   },
   "type": "module",
+  "exports": {
+    "./*.ts": "./src/*.ts"
+  },
   "scripts": {
     "type": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
-    "@home-chip/contract": "*"
+    "@home-chip/contract": "*",
+    "rotating-file-stream": "^3.2.10"
   },
   "devDependencies": {
     "@types/node": "^26.0.0"
