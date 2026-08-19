@@ -11,6 +11,9 @@
     "directory": "packages/database"
   },
   "type": "module",
+  "exports": {
+    "./database.ts": "./src/database.ts"
+  },
   "scripts": {
     "type": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
