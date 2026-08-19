@@ -11,6 +11,9 @@
     "directory": "packages/config"
   },
   "type": "module",
+  "exports": {
+    "./*.ts": "./src/*.ts"
+  },
   "scripts": {
     "type": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
