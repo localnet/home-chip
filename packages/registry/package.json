@@ -12,7 +12,8 @@
   },
   "type": "module",
   "exports": {
-    "./bus.ts": "./src/bus.ts"
+    "./bus.ts": "./src/bus.ts",
+    "./registry.ts": "./src/registry.ts"
   },
   "scripts": {
     "type": "tsc --noEmit",
