@@ -11,6 +11,9 @@
     "directory": "packages/registry"
   },
   "type": "module",
+  "exports": {
+    "./bus.ts": "./src/bus.ts"
+  },
   "scripts": {
     "type": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
