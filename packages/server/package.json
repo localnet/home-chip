@@ -11,6 +11,9 @@
     "directory": "packages/server"
   },
   "type": "module",
+  "exports": {
+    "./use-cases/*.ts": "./src/use-cases/*.ts"
+  },
   "scripts": {
     "type": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
