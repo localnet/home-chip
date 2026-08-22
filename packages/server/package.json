@@ -12,16 +12,19 @@
   },
   "type": "module",
   "exports": {
-    "./use-cases/*.ts": "./src/use-cases/*.ts"
+    "./use-cases/*.ts": "./src/use-cases/*.ts",
+    "./server.ts": "./src/server.ts"
   },
   "scripts": {
     "type": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
-    "@home-chip/contract": "*"
+    "@home-chip/contract": "*",
+    "ws": "^8.21.3"
   },
   "devDependencies": {
-    "@types/node": "^26.0.0"
+    "@types/node": "^26.0.0",
+    "@types/ws": "^8.0.0"
   }
 }
