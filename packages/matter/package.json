@@ -16,7 +16,8 @@
     "test": "node --test \"test/**/*.test.ts\""
   },
   "dependencies": {
-    "@home-chip/contract": "*"
+    "@home-chip/contract": "*",
+    "@matter/main": "0.17.9"
   },
   "devDependencies": {
     "@types/node": "^26.0.0"
