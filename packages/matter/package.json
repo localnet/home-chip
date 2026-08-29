@@ -11,6 +11,9 @@
     "directory": "packages/matter"
   },
   "type": "module",
+  "exports": {
+    "./matter.ts": "./src/matter.ts"
+  },
   "scripts": {
     "type": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\""
