@@ -86,16 +86,49 @@ export function request(ws: WebSocket, method: string, params?: unknown, id = "1
     });
 }
 
-/** The next notification the server pushes, so a test can await an event rather than poll. */
-export const notified = (ws: WebSocket): Promise<{ method: string; params: unknown }> =>
-    new Promise((resolve) => {
-        const onMessage = (event: MessageEvent): void => {
-            const message = JSON.parse(String(event.data)) as { method?: string; params?: unknown };
-            if (message.method === undefined) {
-                return;
-            }
-            ws.removeEventListener("message", onMessage);
-            resolve({ method: message.method, params: message.params });
-        };
-        ws.addEventListener("message", onMessage);
+/** A server-pushed notification: a message carrying a method and no id. */
+export interface Notification {
+    readonly method: string;
+    readonly params: unknown;
+}
+
+/**
+ * Collects every notification the server pushes from the moment it is called, and hands back a
+ * way to wait for one by name.
+ *
+ * Waiting for "the next notification" and asserting what it was would tie a test to an ordering
+ * nothing promises: a node coming online can announce itself before or after it is recorded, and
+ * either order is correct. Matching by name also means a test may await one that has already
+ * arrived, which is otherwise a race it would lose intermittently.
+ */
+export function collectNotifications(ws: WebSocket): (method: string, timeoutMs?: number) => Promise<Notification> {
+    const received: Notification[] = [];
+    const waiting = new Map<string, (notification: Notification) => void>();
+
+    ws.addEventListener("message", (event: MessageEvent) => {
+        const message = JSON.parse(String(event.data)) as { method?: string; params?: unknown };
+        if (message.method === undefined) {
+            return;
+        }
+        const notification = { method: message.method, params: message.params };
+        received.push(notification);
+        waiting.get(notification.method)?.(notification);
     });
+
+    return (method, timeoutMs = 5_000) => {
+        const already = received.find((notification) => notification.method === method);
+        if (already !== undefined) {
+            return Promise.resolve(already);
+        }
+        return new Promise((resolve, reject) => {
+            const timer = globalThis.setTimeout(
+                () => reject(new Error(`${method} never arrived. Received: ${received.map((n) => n.method)}`)),
+                timeoutMs,
+            );
+            waiting.set(method, (notification) => {
+                globalThis.clearTimeout(timer);
+                resolve(notification);
+            });
+        });
+    };
+}
