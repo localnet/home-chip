@@ -6,7 +6,7 @@ import type { NodeState } from "@home-chip/contract/node/types.ts";
 import { SUBSCRIBE_METHOD } from "@home-chip/contract/snapshot.ts";
 
 import { collectNotifications, connect, opened, request } from "./helpers/client.ts";
-import { startDevice } from "./helpers/device.ts";
+import { startBridge, startDevice } from "./helpers/device.ts";
 import { startHub } from "./helpers/hub.ts";
 
 /**
@@ -15,6 +15,10 @@ import { startHub } from "./helpers/hub.ts";
  * only stub — the mDNS scanner, the commissioning flow, the endpoint structure the SDK reports —
  * are exercised against something that actually answers.
  */
+/** Matter device type ids, as the contract serves them: a plain number, not an SDK type. */
+const ON_OFF_LIGHT = 0x0100;
+const AGGREGATOR = 0x000e;
+
 describe("commissioning", () => {
     test("commissions a device from its manual pairing code and announces it", async (t) => {
         const hub = await startHub(t);
@@ -68,7 +72,30 @@ describe("commissioning", () => {
         // a client is never offered something it cannot control.
         const listed = endpoints.result as EndpointState[];
         assert.equal(listed.length, 1);
-        assert.equal(listed[0]?.deviceType, 0x0100);
+        assert.equal(listed[0]?.deviceType, ON_OFF_LIGHT);
+    });
+
+    test("records every endpoint a bridge carries, nested ones included", async (t) => {
+        // The case a plain device cannot produce. A bridge's lights hang off its aggregator
+        // rather than off the root, so a node's direct children are the aggregator alone: reading
+        // those reports one endpoint where there are three. Reading the node's whole endpoint
+        // index reports the aggregator and both lights, which is what a user has to be able to
+        // name and put in a room.
+        const hub = await startHub(t);
+        const bridge = await startBridge(t);
+        const ws = connect(hub.url);
+        t.after(() => ws.close());
+        await opened(ws);
+        await request(ws, "node.commission", { setupCode: bridge.manualPairingCode }, "commission");
+
+        const endpoints = await request(ws, "endpoint.list", {}, "endpoints");
+
+        assert.ok("result" in endpoints);
+        const listed = endpoints.result as EndpointState[];
+        assert.equal(listed.length, 3);
+        // Two of them are the bridged lights; the third is the aggregator itself.
+        assert.equal(listed.filter((endpoint) => endpoint.deviceType === ON_OFF_LIGHT).length, 2);
+        assert.equal(listed.filter((endpoint) => endpoint.deviceType === AGGREGATOR).length, 1);
     });
 
     test("turns the light on through the hub, and the device agrees", async (t) => {

@@ -1,7 +1,9 @@
 import type { TestContext } from "node:test";
 
 import { Endpoint, ServerNode, VendorId } from "@matter/main";
+import { BridgedDeviceBasicInformationServer } from "@matter/main/behaviors/bridged-device-basic-information";
 import { OnOffLightDevice } from "@matter/main/devices";
+import { AggregatorEndpoint } from "@matter/main/endpoints/aggregator";
 
 // @matter/main is deliberately undeclared here, as it is in the matter package for @matter/nodejs.
 // The one copy in the tree is the one @home-chip/matter pins, and that is the point: a device
@@ -19,6 +21,14 @@ const DEVICE_PORT = 5541;
 /** Passcode and discriminator the SDK itself uses for development, and the pairing codes derive. */
 const PASSCODE = 20202021;
 const DISCRIMINATOR = 3840;
+
+/** A second port, so a bridge and a light can run side by side when a test wants both. */
+const BRIDGE_PORT = 5542;
+
+export interface SimulatedBridge {
+    readonly manualPairingCode: string;
+    readonly close: () => Promise<void>;
+}
 
 export interface SimulatedDevice {
     /** The 11-digit code a user would read off the device's label. */
@@ -67,5 +77,49 @@ export async function startDevice(t: TestContext): Promise<SimulatedDevice> {
         qrPairingCode,
         isOn: () => light.stateOf(OnOffLightDevice.behaviors.onOff).onOff,
         close: () => device.close(),
+    };
+}
+
+/**
+ * A bridge exposing two lights, which is the shape a plain device cannot produce: the bridged
+ * lights hang off the aggregator endpoint rather than off the root, so a node's direct children
+ * are the aggregator alone and its whole endpoint tree is the aggregator plus both lights.
+ *
+ * That difference is the point of the test using this. Anything that enumerates a node by its
+ * direct children reports one endpoint here where there are three.
+ */
+export async function startBridge(t: TestContext): Promise<SimulatedBridge> {
+    const bridge = await ServerNode.create({
+        id: "e2e-bridge",
+        network: { port: BRIDGE_PORT },
+        commissioning: { passcode: PASSCODE, discriminator: DISCRIMINATOR + 1 },
+        basicInformation: {
+            vendorName: "HomeChip",
+            vendorId: VendorId(0xfff1),
+            productName: "E2E Test Bridge",
+            productId: 0x8001,
+        },
+    });
+
+    const aggregator = new Endpoint(AggregatorEndpoint, { id: "aggregator" });
+    await bridge.add(aggregator);
+
+    // A bridged device carries BridgedDeviceBasicInformation, which is how a controller tells one
+    // apart from an endpoint the bridge itself implements.
+    for (const id of ["bridged-1", "bridged-2"]) {
+        await aggregator.add(
+            new Endpoint(OnOffLightDevice.with(BridgedDeviceBasicInformationServer), {
+                id,
+                bridgedDeviceBasicInformation: { nodeLabel: id, productName: id, reachable: true },
+            }),
+        );
+    }
+
+    await bridge.start();
+    t.after(() => bridge.close());
+
+    return {
+        manualPairingCode: bridge.state.commissioning.pairingCodes.manualPairingCode,
+        close: () => bridge.close(),
     };
 }
