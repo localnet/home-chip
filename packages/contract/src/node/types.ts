@@ -27,10 +27,17 @@ export interface NodeInfo {
     readonly id: NodeId;
 
     /**
-     * The native Matter Node ID (uint64) this node holds in our fabric, as a string because JSON
-     * has no 64-bit integer; a client correlating with raw Matter logs parses it back to BigInt.
+     * The native Matter Node ID (uint64) this node holds in our fabric, in hexadecimal with an
+     * `0x` prefix. A string because JSON has no 64-bit integer, and hexadecimal because that is
+     * how the SDK writes a node in its own log, so the two read alike — the log's form is this
+     * one without the prefix.
+     *
+     * The prefix stays because it is what lets a client parse the value back with BigInt: without
+     * it, an id whose digits happen to be decimal would parse as a decimal number and be silently
+     * wrong.
+     *
      * Diagnostic detail, not an address the domain uses — consumers refer to the node by its
-     * `NodeId`. The same value as `NodeRecord.matterId`, in its string form.
+     * `NodeId`. The same value as `NodeRecord.matterId`.
      */
     readonly matterId: string;
 

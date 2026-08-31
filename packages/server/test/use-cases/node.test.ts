@@ -16,7 +16,7 @@ describe("NodeUseCase", () => {
         const useCase = new NodeUseCase({ nodeGateway });
         const info: NodeInfo = {
             id: N1,
-            matterId: "1",
+            matterId: "0x1",
             commissionedAt: 1700000000000,
             label: "Bedside",
             vendorName: "Acme",

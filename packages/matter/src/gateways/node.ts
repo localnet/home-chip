@@ -100,7 +100,7 @@ export class SdkNodeGateway implements NodeGateway {
                 endpointNumber: record.matterNumber,
             })),
         });
-        this.#logger.info("commissioned node", nodeId, endpoints.length);
+        this.#logger.info("commissioned node to the fabric", nodeId, endpoints.length);
 
         return {
             node: { id: nodeId, matterId },
@@ -149,7 +149,7 @@ export class SdkNodeGateway implements NodeGateway {
         const basic = node.stateOf(BasicInformationClient);
         return {
             id: nodeId,
-            matterId: this.#requireMatterId(node).toString(),
+            matterId: `0x${this.#requireMatterId(node).toString(16)}`,
             commissionedAt: node.state.commissioning.commissionedAt ?? null,
             label: basic.nodeLabel ?? "",
             vendorName: basic.vendorName,
