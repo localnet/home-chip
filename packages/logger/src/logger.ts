@@ -17,6 +17,8 @@ const SEVERITY = {
     [LogLevel.Fatal]: 5,
 } as const satisfies Record<LogLevel, number>;
 
+const pad = (value: number, width: number): string => String(value).padStart(width, "0");
+
 /**
  * Strings pass through as written; everything else goes through `util.inspect`, which unfolds an
  * `Error` with its stack. matter.js renders values slightly differently — double-quoted strings
@@ -24,7 +26,6 @@ const SEVERITY = {
  * that identically.
  */
 const render = (value: unknown): string => (typeof value === "string" ? value : inspect(value));
-const pad = (value: number, width: number): string => String(value).padStart(width, "0");
 
 function timestamp(date: Date): string {
     const day = `${date.getFullYear()}-${pad(date.getMonth() + 1, 2)}-${pad(date.getDate(), 2)}`;

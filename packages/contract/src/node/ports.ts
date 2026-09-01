@@ -46,6 +46,10 @@ export interface NodeRepository {
     /**
      * Removes the record, once the matter adapter has confirmed the node left the fabric. The
      * endpoints go with it through the FK constraint; the caller does not delete them.
+     *
+     * Throws NodeNotFoundError if the node does not exist, so a caller can emit `node:removed` on
+     * the strength of this call alone rather than reading first to find out whether anything was
+     * actually deleted.
      */
     delete(id: NodeId): void;
 }

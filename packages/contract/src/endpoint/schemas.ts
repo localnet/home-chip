@@ -60,7 +60,12 @@ const invokeArgsSchema = v.union([
  * vendor id for manufacturer-specific ones — so the range covers both. The top value 0xffffffff
  * is the wildcard in a Matter path and is not a valid target here.
  *
- * Whether the identifier exists on the device is settled downstream, by the matter adapter.
+ * This is the shape of an identifier, not the set of addressable ones. Matter narrows that set
+ * differently for each kind of element, and a manufacturer cluster is legal where an attribute
+ * with the same suffix is not. Restating those rules here would be one schema per kind,
+ * duplicating a part of the Matter model that moves with its revisions — and getting one wrong
+ * refuses a legitimate device. The model lives in the SDK, so the matter adapter is what settles
+ * addressability, and what it refuses comes back as invalid params.
  */
 const matterIdSchema = v.pipe(
     v.number(),

@@ -98,7 +98,7 @@ class RotatingStreamProvider implements StreamProvider {
 /**
  * A `StreamProvider` for the file at `filePath`, rotating per `options`. Takes the whole path and
  * splits it internally, since rotating-file-stream wants directory and file name apart and a
- * caller handed two strings can transpose them. Operand first, options second, as `loadConfig`.
+ * caller handed two strings can transpose them.
  */
 export function createStreamProvider(filePath: string, options: RotationOptions): StreamProvider {
     return new RotatingStreamProvider(filePath, options);

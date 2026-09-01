@@ -58,6 +58,10 @@ export interface EndpointRepository {
      * Removes one endpoint, for a dynamic removal from a Matter Bridge. Decommissioning a whole
      * node deletes its endpoints in bulk inside the decommission transaction, not through N calls
      * here.
+     *
+     * Throws EndpointNotFoundError if the endpoint does not exist, as setName and setRoom do, so a
+     * caller can emit `endpoint:removed` on the strength of this call alone rather than reading
+     * first to find out whether anything was actually deleted.
      */
     delete(id: EndpointId): void;
 }
