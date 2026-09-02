@@ -22,7 +22,7 @@ const N1 = createNodeId();
 
 const INFO: NodeInfo = {
     id: N1,
-    matterId: "1",
+    matterId: "0x1",
     commissionedAt: null,
     label: "Bedside",
     vendorName: "Acme",

@@ -26,14 +26,14 @@ import { type QrCodeData, QrPairingCodeCodec } from "@matter/main/types";
 import type { IdentityMap, NodeIdentity } from "../identity.ts";
 import { NodeWatcher } from "../watcher.ts";
 
+/** The prefix a QR onboarding payload carries, per Core § 5.1.3.1. */
+const QR_PREFIX = "MT:";
+
 /**
  * Trims a value and returns it only if non-empty, so a whitespace-only or empty label
  * falls through the default-name chain instead of winning as a blank name.
  */
 const nonEmpty = (value: string | undefined): string | undefined => value?.trim() || undefined;
-
-/** The prefix a QR onboarding payload carries, per Core § 5.1.3.1. */
-const QR_PREFIX = "MT:";
 
 /**
  * Implements the NodeGateway port against the Matter SDK, translating between our NodeId and the
@@ -48,6 +48,12 @@ export class SdkNodeGateway implements NodeGateway {
     readonly #identity: IdentityMap;
     readonly #controller: ServerNode;
     readonly #watcher: NodeWatcher;
+    /**
+     * Nodes being removed from the fabric right now. A node on its way out goes offline as part of
+     * leaving, and reporting that as a disconnection would surface to a user as a device dropping
+     * off moments before they are told it is gone — for a removal they asked for.
+     */
+    readonly #decommissioning = new Set<NodeId>();
 
     constructor(logger: Logger, bus: DomainEventBus, identity: IdentityMap, controller: ServerNode) {
         this.#logger = logger;
@@ -100,7 +106,7 @@ export class SdkNodeGateway implements NodeGateway {
                 endpointNumber: record.matterNumber,
             })),
         });
-        this.#logger.info("commissioned node", nodeId, endpoints.length);
+        this.#logger.info("commissioned node to the fabric", nodeId, endpoints.length);
 
         return {
             node: { id: nodeId, matterId },
@@ -110,6 +116,7 @@ export class SdkNodeGateway implements NodeGateway {
 
     async decommission(nodeId: NodeId, force = false): Promise<void> {
         const node = this.#requireNode(nodeId);
+        this.#decommissioning.add(nodeId);
         try {
             // force goes straight to the SDK's local delete: attempting the fabric removal
             // first would reintroduce the very wait (an asleep LIT holds the interaction until
@@ -127,6 +134,10 @@ export class SdkNodeGateway implements NodeGateway {
                 throw new NodeOfflineError(nodeId, error);
             }
             throw new DecommissioningFailedError(nodeId, error);
+        } finally {
+            // Cleared however this ended: a decommissioning that failed leaves a node that is
+            // still ours, and its transitions are news again.
+            this.#decommissioning.delete(nodeId);
         }
         this.#identity.removeNode(nodeId);
         // Forced or not is the whole difference for whoever reads this later: a forced removal
@@ -149,7 +160,7 @@ export class SdkNodeGateway implements NodeGateway {
         const basic = node.stateOf(BasicInformationClient);
         return {
             id: nodeId,
-            matterId: this.#requireMatterId(node).toString(),
+            matterId: `0x${this.#requireMatterId(node).toString(16)}`,
             commissionedAt: node.state.commissioning.commissionedAt ?? null,
             label: basic.nodeLabel ?? "",
             vendorName: basic.vendorName,
@@ -259,6 +270,11 @@ export class SdkNodeGateway implements NodeGateway {
      * Emits node:connected / node:disconnected from the node's own lifecycle transitions.
      * Registered on the group NodeWatcher owns for this node, so both observers are detached
      * together when the node is decommissioned or the gateway stops.
+     *
+     * Going offline while leaving the fabric is not a transition worth reporting, so it is
+     * filtered rather than the observers detached: detaching would need a window in which a
+     * genuine drop — a decommissioning that times out while the device really goes away — would
+     * pass unseen.
      */
     #watchLifecycle(group: ObserverGroup, identity: NodeIdentity): void {
         const nodeId = identity.nodeId;
@@ -266,7 +282,9 @@ export class SdkNodeGateway implements NodeGateway {
             this.#bus.emit("node:connected", { nodeId, timestamp: Date.now() });
         });
         group.on(identity.node.lifecycle.offline, () => {
-            this.#bus.emit("node:disconnected", { nodeId, timestamp: Date.now() });
+            if (!this.#decommissioning.has(nodeId)) {
+                this.#bus.emit("node:disconnected", { nodeId, timestamp: Date.now() });
+            }
         });
     }
 }

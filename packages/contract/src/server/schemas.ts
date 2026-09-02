@@ -15,9 +15,10 @@ import { parseOrThrow } from "../internal/valibot.ts";
  *   - `validateServerMessage` for what arrives from the hub, either a response correlated by `id`
  *     or a notification carrying a retransmitted bus event.
  *
- * The asymmetry is the protocol's: a client only invokes operations and wants them confirmed,
- * while the hub both answers operations and pushes state changes. Naming the validators by
- * direction rather than by content keeps that visible at every call site.
+ * The asymmetry is ours, not JSON-RPC's, which lets either peer send anything: a client here only
+ * invokes operations and wants them confirmed, while the hub both answers operations and pushes
+ * state changes. Naming the validators by direction rather than by content keeps that visible at
+ * every call site.
  *
  * Per-method params are not this file's business. Each subdomain owns the schemas for its own
  * methods, and the adapter calls those `validate*Params` once the envelope passes here. Result
@@ -37,12 +38,16 @@ const idSchema = v.union([v.string(), v.number()]);
 
 /**
  * Section 4.2 allows params by position (an array) or by name (an object), and both make a valid
- * Request object, so both are accepted here: this file validates the envelope the spec defines,
- * not the subset this hub serves.
+ * Request object. Both are accepted here, which is the one place this file admits more than the
+ * hub serves: elsewhere it describes our protocol rather than the spec's, splitting the envelope
+ * by direction and refusing a batch, neither of which the spec does.
  *
- * Every method here does take params by name, and the adapter turns a positional call away right
- * after parsing, as InvalidParams (-32602) — the parameters are the thing it cannot work with,
- * while the request around them is well formed.
+ * The latitude is deliberate. Every method takes params by name, and the adapter turns a
+ * positional call away right after parsing, as InvalidParams (-32602) — the parameters are what
+ * it cannot work with, while the request around them is well formed. Refusing them here instead
+ * would hand the adapter one ValidationError for two failures the spec answers differently: a
+ * malformed envelope, which must carry a null id, and positional params, whose id parsed fine and
+ * has to come back for the client to correlate the refusal against.
  *
  * Order matters in the union: an array is a valid record with keys "0" and "1" as far as
  * JavaScript is concerned, so with `v.record` first an array would match and be quietly turned
@@ -104,12 +109,19 @@ const responseSchema = v.union(
  * with its path; these cover the case where the members disagree and the shape as a whole is
  * what is being rejected.
  *
- * A batch, section 6's array of requests, fails here too. This hub does not serve batches, and a
- * single error response is what the spec prescribes when a batch cannot be taken as one.
+ * A batch, section 6's array of requests, is refused ahead of the union rather than by it. Both
+ * refuse it, but only a check of its own can say so: the union's message is the fallback for
+ * every envelope that fails, so naming batches there would tell a client that forgot `jsonrpc`
+ * about a feature it never asked for. A library that batches by default reads why its message
+ * was refused, and everyone else reads what is actually wrong with theirs.
+ *
+ * Refusing it is all this hub owes a batch. The spec prescribes a single error response for one
+ * that cannot be taken as one, and an array carries no id to correlate, so the null id that
+ * response has is the right one.
  */
-const clientMessageSchema = v.union(
-    [requestSchema, notificationSchema],
-    "message must be a JSON-RPC request or notification",
+const clientMessageSchema = v.pipe(
+    v.custom<Record<string, unknown>>((input) => !Array.isArray(input), "batches are not supported"),
+    v.union([requestSchema, notificationSchema], "message must be a JSON-RPC request or notification"),
 );
 
 const serverMessageSchema = v.union(

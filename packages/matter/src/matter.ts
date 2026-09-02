@@ -124,7 +124,7 @@ class SdkMatterProvider implements MatterProvider {
     }
 
     async start(): Promise<void> {
-        if (this.#controller !== undefined) {
+        if (this.#controller !== undefined || this.#node !== undefined || this.#endpoint !== undefined) {
             return;
         }
         // Before creating the node, so it picks up our storage path and log redirection.
@@ -153,8 +153,8 @@ class SdkMatterProvider implements MatterProvider {
             controller: { adminFabricLabel: BASIC_INFORMATION.vendorName },
         });
         await controller.start();
-
         this.#hydrateIdentity(controller);
+
         // After hydration, so both observe the nodes the IdentityMap already holds as well as the
         // ones added later.
         this.#node = new SdkNodeGateway(this.#logger, this.#bus, this.#identity, controller);
@@ -168,22 +168,24 @@ class SdkMatterProvider implements MatterProvider {
     }
 
     async stop(): Promise<void> {
-        if (this.#controller === undefined) {
+        if (this.#controller === undefined || this.#node === undefined || this.#endpoint === undefined) {
             return;
         }
         const controller = this.#controller;
-
-        // Stop observing before closing, and empty the identity map with them: a later start
-        // rehydrates from the repository, and the nodes of this run would be duplicates.
-        this.#endpoint?.stop();
-        this.#endpoint = undefined;
-        this.#node?.stop();
-        this.#node = undefined;
-        this.#identity.clear();
-
-        await controller.close();
+        const node = this.#node;
+        const endpoint = this.#endpoint;
 
         this.#controller = undefined;
+        this.#identity.clear();
+        this.#node = undefined;
+        this.#endpoint = undefined;
+
+        // Stop observing before closing: the watchers hold SDK observers that read the map. A
+        // later start rehydrates from the repository, so the nodes of this run would meet
+        // themselves as duplicates if the map survived.
+        endpoint.stop();
+        node.stop();
+        await controller.close();
     }
 
     /**

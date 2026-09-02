@@ -45,8 +45,17 @@ export class EndpointUseCase {
 
     assignRoom(id: EndpointId, roomId: RoomId | null): void {
         // The room is checked here because the alternative is a foreign key violation: SQLite
-        // would refuse the write with a constraint error naming a column, where the client needs
-        // a not-found naming the room it asked for.
+        // would refuse the write with a constraint error, where the client needs a not-found
+        // naming the room it asked for.
+        //
+        // Translating that error inside the repository would save this dependency, but SQLite
+        // reports only "FOREIGN KEY constraint failed" with no column, so it can tell which key
+        // failed only where a statement touches exactly one — setRoom does, save does not. That
+        // is a property of each statement rather than of the table, so every future one would
+        // have to be read against the rule, and a second key added to an existing statement would
+        // make the translation lie rather than fail. There is nothing to gain the other way
+        // either: this runs to completion without an await, so no request interleaves between the
+        // read and the write.
         if (roomId !== null && this.#roomRepository.findById(roomId) === null) {
             throw new RoomNotFoundError(roomId);
         }

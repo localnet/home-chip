@@ -156,6 +156,9 @@ class HttpServerProvider implements Lifecycle {
         const server = this.#server;
         const wss = this.#wss;
 
+        this.#server = undefined;
+        this.#wss = undefined;
+
         // Stop producing before closing: the heartbeat would otherwise ping sockets that are on
         // their way out, and a domain event emitted while the sockets close would be forwarded to
         // connections nobody is listening on any more.
@@ -175,8 +178,6 @@ class HttpServerProvider implements Lifecycle {
         await new Promise<void>((resolve, reject) => {
             server.close((error) => (error ? reject(error) : resolve()));
         });
-        this.#server = undefined;
-        this.#wss = undefined;
     }
 
     #handleUpgrade(wss: WebSocketServer, request: IncomingMessage, socket: Duplex, head: Buffer): void {

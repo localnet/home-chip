@@ -87,18 +87,21 @@ class RotatingStreamProvider implements StreamProvider {
         }
         const stream = this.#stream;
 
+        // Released before the teardown, not after: the field says the stream is usable, and from
+        // here it is not. Reaching for it now gets the window error, which is accurate.
+        this.#stream = undefined;
+
         // Awaited so the pending tail reaches disk before the process moves on.
         await new Promise<void>((resolve) => {
             stream.end(() => resolve());
         });
-        this.#stream = undefined;
     }
 }
 
 /**
  * A `StreamProvider` for the file at `filePath`, rotating per `options`. Takes the whole path and
  * splits it internally, since rotating-file-stream wants directory and file name apart and a
- * caller handed two strings can transpose them. Operand first, options second, as `loadConfig`.
+ * caller handed two strings can transpose them.
  */
 export function createStreamProvider(filePath: string, options: RotationOptions): StreamProvider {
     return new RotatingStreamProvider(filePath, options);

@@ -77,6 +77,11 @@ describe("SdkNodeGateway", () => {
         assert.equal(info.productName, "Test OnOff Light");
         assert.equal(info.vendorId, 0xfff1);
         assert.equal(info.softwareVersionString, "1.0.0");
+        // Hexadecimal with the prefix, the form a client parses back with BigInt and the one the
+        // SDK's own log carries without it. Compared against the id the commissioning returned,
+        // so the assertion holds whatever node id the fabric assigned.
+        assert.equal(info.matterId, `0x${result.node.matterId.toString(16)}`);
+        assert.match(info.matterId, /^0x[0-9a-f]+$/);
         // commissionedAt is served live from the SDK: a number when provided, else null.
         assert.ok(info.commissionedAt === null || typeof info.commissionedAt === "number");
     });
