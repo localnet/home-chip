@@ -15,6 +15,7 @@
   },
   "scripts": {
     "type": "tsc --noEmit",
+    "build": "rolldown --config",
     "test": "node --test \"test/**/*.test.ts\"",
     "e2e": "node --test --test-concurrency=1 \"e2e/**/*.test.ts\"",
     "start": "node --env-file-if-exists=.env src/main.ts"
@@ -29,6 +30,7 @@
     "@home-chip/server": "*"
   },
   "devDependencies": {
-    "@types/node": "^26.0.0"
+    "@types/node": "^26.0.0",
+    "rolldown": "1.2.7"
   }
 }

@@ -47,6 +47,18 @@ jobs:
       - run: npm ci
       - run: npm run --workspaces test
 
+  hub-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v7
+        with:
+          node-version-file: package.json
+      - run: npm ci
+      - run: npm run --workspace=@home-chip/hub build
+
   hub-e2e:
     runs-on: ubuntu-latest
     steps:

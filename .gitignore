@@ -1,5 +1,6 @@
 # Directories
 .home-chip/
+dist/
 node_modules/
 
 # Files
