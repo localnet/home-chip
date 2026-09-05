@@ -8,8 +8,6 @@ import { BridgedDeviceBasicInformationServer } from "@matter/main/behaviors/brid
 import { OnOffLightDevice } from "@matter/main/devices";
 import { AggregatorEndpoint } from "@matter/main/endpoints/aggregator";
 
-import { LOOPBACK } from "./loopback.ts";
-
 // @matter/main is deliberately undeclared here, as it is in the matter package for @matter/nodejs.
 // The one copy in the tree is the one @home-chip/matter pins, and that is the point: a device
 // speaking a different build of the SDK than the controller it pairs with would be testing an
@@ -69,11 +67,6 @@ function configureSdk(): void {
         };
     }
     Logger.format = LogFormat.PLAIN;
-
-    // Confines the devices to the loopback, so a test run neither advertises simulated devices on
-    // the real network nor discovers what is already there. The hub is confined the same way,
-    // through the config file its fixture writes.
-    Environment.default.vars.set("mdns.networkInterface", LOOPBACK);
 }
 
 export interface SimulatedBridge {
@@ -92,10 +85,14 @@ export interface SimulatedDevice {
 }
 
 /**
- * An On/Off light announcing itself on the loopback, as a physical one would on a real network: a
- * second ServerNode alongside the hub's controller, in this process rather than the hub's. They
- * find each other over mDNS, which is the point — the hub has to discover this device the way it
- * discovers any other.
+ * An On/Off light announcing itself the way a physical one would: a second ServerNode alongside
+ * the hub's controller, in this process rather than the hub's. They find each other over mDNS,
+ * which is the point — the hub has to discover this device the way it discovers any other.
+ *
+ * Not confined to an interface. Matter carries mDNS over IPv6 multicast and Linux's loopback does
+ * not carry multicast, so pinning both sides to it works on macOS and hangs on a Linux runner at
+ * the first test needing discovery — the tests that only speak TCP pass, which is what makes that
+ * failure confusing. A run therefore advertises its devices on whatever network it is on.
  */
 export async function startDevice(t: TestContext): Promise<SimulatedDevice> {
     configureSdk();

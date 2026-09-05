@@ -8,8 +8,6 @@ import { fileURLToPath } from "node:url";
 
 import type { Environment } from "@home-chip/config/environment.ts";
 
-import { LOOPBACK } from "./loopback.ts";
-
 /** The token every test connects with, passed the way the entry point reads it. */
 export const AUTH_TOKEN = "e2e-test-token";
 
@@ -67,10 +65,9 @@ export async function startHub(t: TestContext, options: { root?: string; port?: 
         authToken: AUTH_TOKEN,
     };
 
-    // The config file rather than the environment: it is where a deployment puts these, and the
-    // only way to say them to a process we do not construct. The interface confines the hub to
-    // the loopback, as the device helper confines the devices, so a run stays on this host.
-    writeFileSync(join(root, "hub.json"), JSON.stringify({ server: { port }, matter: { networkInterface: LOOPBACK } }));
+    // The port travels in the config file rather than the environment, which is where a
+    // deployment would put it and the only way to say it to a process we do not construct.
+    writeFileSync(join(root, "hub.json"), JSON.stringify({ server: { port } }));
 
     const hub = spawn(process.execPath, [BUNDLE], {
         env: {
