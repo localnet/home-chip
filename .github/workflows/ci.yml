@@ -60,6 +60,7 @@ jobs:
       - run: npm run --workspace=@home-chip/hub build
 
   hub-e2e:
+    needs: hub-build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -69,4 +70,5 @@ jobs:
         with:
           node-version-file: package.json
       - run: npm ci
+      - run: npm run --workspace=@home-chip/hub build
       - run: npm run --workspace=@home-chip/hub e2e

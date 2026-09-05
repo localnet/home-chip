@@ -1,9 +1,14 @@
+import { createWriteStream, mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import type { TestContext } from "node:test";
 
-import { Endpoint, ServerNode, VendorId } from "@matter/main";
+import { Endpoint, Environment, LogFormat, Logger, ServerNode, VendorId } from "@matter/main";
 import { BridgedDeviceBasicInformationServer } from "@matter/main/behaviors/bridged-device-basic-information";
 import { OnOffLightDevice } from "@matter/main/devices";
 import { AggregatorEndpoint } from "@matter/main/endpoints/aggregator";
+
+import { LOOPBACK } from "./loopback.ts";
 
 // @matter/main is deliberately undeclared here, as it is in the matter package for @matter/nodejs.
 // The one copy in the tree is the one @home-chip/matter pins, and that is the point: a device
@@ -18,12 +23,58 @@ import { AggregatorEndpoint } from "@matter/main/endpoints/aggregator";
  */
 const DEVICE_PORT = 5541;
 
+/** A second port, so a bridge and a light can run side by side when a test wants both. */
+const BRIDGE_PORT = 5542;
+
 /** Passcode and discriminator the SDK itself uses for development, and the pairing codes derive. */
 const PASSCODE = 20202021;
 const DISCRIMINATOR = 3840;
 
-/** A second port, so a bridge and a light can run side by side when a test wants both. */
-const BRIDGE_PORT = 5542;
+let configured = false;
+let minted = 0;
+
+/**
+ * A node id no other device in this run has used.
+ *
+ * The SDK partitions storage by node id, so two devices sharing one would share a directory, and
+ * the second would open what the first left: already commissioned into a fabric that no longer
+ * exists, never advertising itself, leaving the hub waiting for a device that will not appear.
+ */
+const uniqueId = (name: string): string => `${name}-${++minted}`;
+
+/**
+ * Points the SDK in this process at a directory of its own and a log file of its own, once.
+ *
+ * The hub used to do both for us: it ran in the same process and configured the shared
+ * `Environment.default` on its way up. It runs as its own process now, so nothing here is
+ * configured — the SDK would fall back to `~/.matter`, where a device outlives the test that made
+ * it, and would write its log to the console, where a passing run buries the results under it.
+ */
+function configureSdk(): void {
+    if (configured) {
+        return;
+    }
+    configured = true;
+
+    const root = mkdtempSync(join(tmpdir(), "home-chip-e2e-devices-"));
+    Environment.default.vars.set("storage.path", root);
+
+    // Kept rather than silenced: it is what diagnosed a device inheriting a previous fabric, and
+    // it costs nothing to write. The path is printed when a device fails to come up.
+    const destination = Logger.destinations.default;
+    if (destination !== undefined) {
+        const stream = createWriteStream(join(root, "matter.log"), { flags: "a" });
+        destination.write = (text: string) => {
+            stream.write(`${text}\n`);
+        };
+    }
+    Logger.format = LogFormat.PLAIN;
+
+    // Confines the devices to the loopback, so a test run neither advertises simulated devices on
+    // the real network nor discovers what is already there. The hub is confined the same way,
+    // through the config file its fixture writes.
+    Environment.default.vars.set("mdns.networkInterface", LOOPBACK);
+}
 
 export interface SimulatedBridge {
     readonly manualPairingCode: string;
@@ -41,17 +92,16 @@ export interface SimulatedDevice {
 }
 
 /**
- * An On/Off light announcing itself on the real network, as a physical one would: a second
- * ServerNode alongside the hub's controller. They coexist because the SDK partitions storage by
- * node id and each takes its own operational port; mDNS is shared, which is the point — the hub
- * has to discover this device the way it discovers any other.
- *
- * Started after the hub, so it inherits the storage root the hub configured and its state lands
- * under the same temporary tree, cleaned up with it.
+ * An On/Off light announcing itself on the loopback, as a physical one would on a real network: a
+ * second ServerNode alongside the hub's controller, in this process rather than the hub's. They
+ * find each other over mDNS, which is the point — the hub has to discover this device the way it
+ * discovers any other.
  */
 export async function startDevice(t: TestContext): Promise<SimulatedDevice> {
+    configureSdk();
+
     const device = await ServerNode.create({
-        id: "e2e-light",
+        id: uniqueId("e2e-light"),
         network: { port: DEVICE_PORT },
         commissioning: { passcode: PASSCODE, discriminator: DISCRIMINATOR },
         basicInformation: {
@@ -89,8 +139,10 @@ export async function startDevice(t: TestContext): Promise<SimulatedDevice> {
  * direct children reports one endpoint here where there are three.
  */
 export async function startBridge(t: TestContext): Promise<SimulatedBridge> {
+    configureSdk();
+
     const bridge = await ServerNode.create({
-        id: "e2e-bridge",
+        id: uniqueId("e2e-bridge"),
         network: { port: BRIDGE_PORT },
         commissioning: { passcode: PASSCODE, discriminator: DISCRIMINATOR + 1 },
         basicInformation: {
