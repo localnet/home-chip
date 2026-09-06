@@ -70,14 +70,28 @@ export function refusedUpgrade(url: string, options: HandshakeOptions = {}): Pro
     });
 }
 
+/**
+ * Long enough for the slowest operation the hub serves — a commissioning, which discovers the
+ * device, runs PASE and reads its whole structure, and takes upwards of a second on a loaded
+ * runner. Short enough that a request nobody is going to answer fails as one, rather than being
+ * collected by the runner's own timeout three minutes later with nothing said about which.
+ */
+const REQUEST_TIMEOUT_MS = 30_000;
+
 /** Sends a request and resolves with the response carrying its id, ignoring notifications. */
 export function request(ws: WebSocket, method: string, params?: unknown, id = "1"): Promise<JsonRpcResponse> {
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+        const timer = globalThis.setTimeout(() => {
+            ws.removeEventListener("message", onMessage);
+            reject(new Error(`${method} (id ${id}) went unanswered for ${REQUEST_TIMEOUT_MS}ms`));
+        }, REQUEST_TIMEOUT_MS);
+
         const onMessage = (event: MessageEvent): void => {
             const message = JSON.parse(String(event.data)) as JsonRpcResponse & { id?: unknown };
             if (message.id !== id) {
                 return;
             }
+            globalThis.clearTimeout(timer);
             ws.removeEventListener("message", onMessage);
             resolve(message);
         };
