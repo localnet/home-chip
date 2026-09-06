@@ -19,6 +19,10 @@ import { startHub } from "./helpers/hub.ts";
 const ON_OFF_LIGHT = 0x0100;
 const AGGREGATOR = 0x000e;
 
+/** The cluster and attribute a light reports its own state through. */
+const ON_OFF_CLUSTER = 0x0006;
+const ON_OFF_ATTRIBUTE = 0x0000;
+
 describe("commissioning", () => {
     test("commissions a device from its manual pairing code and announces it", async (t) => {
         const hub = await startHub(t);
@@ -96,6 +100,30 @@ describe("commissioning", () => {
         // Two of them are the bridged lights; the third is the aggregator itself.
         assert.equal(listed.filter((endpoint) => endpoint.deviceType === ON_OFF_LIGHT).length, 2);
         assert.equal(listed.filter((endpoint) => endpoint.deviceType === AGGREGATOR).length, 1);
+    });
+
+    test("a change made at the device reaches a subscribed client", async (t) => {
+        // The direction the hub exists for, and the one no other test covers: the device changes
+        // on its own — a wall switch, not a command — and the change has to travel the whole way
+        // back. The Matter subscription reports it, the watcher translates it, the bus carries it,
+        // the registry applies it and the channel pushes it to a socket. Every piece has its own
+        // unit tests; the path through all of them has none.
+        const hub = await startHub(t);
+        const device = await startDevice(t);
+        const ws = connect(hub.url);
+        t.after(() => ws.close());
+        await opened(ws);
+        const notification = collectNotifications(ws);
+        await request(ws, SUBSCRIBE_METHOD, undefined, "sub");
+        await request(ws, "node.commission", { setupCode: device.manualPairingCode }, "commission");
+
+        await device.setOn(true);
+
+        const changed = await notification("endpoint:changed");
+        const params = changed.params as { clusterId: number; attributeId: number; value: unknown };
+        assert.equal(params.clusterId, ON_OFF_CLUSTER);
+        assert.equal(params.attributeId, ON_OFF_ATTRIBUTE);
+        assert.equal(params.value, true);
     });
 
     test("turns the light on through the hub, and the device agrees", async (t) => {

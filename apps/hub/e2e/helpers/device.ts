@@ -81,6 +81,8 @@ export interface SimulatedDevice {
     readonly qrPairingCode: string;
     /** Whether the light is on, read from the device's own state rather than through the hub. */
     readonly isOn: () => boolean;
+    /** Switches the light at the device, as a wall switch would, without going through the hub. */
+    readonly setOn: (on: boolean) => Promise<void>;
     readonly close: () => Promise<void>;
 }
 
@@ -123,6 +125,9 @@ export async function startDevice(t: TestContext): Promise<SimulatedDevice> {
         manualPairingCode,
         qrPairingCode,
         isOn: () => light.stateOf(OnOffLightDevice.behaviors.onOff).onOff,
+        setOn: async (on) => {
+            await light.setStateOf(OnOffLightDevice.behaviors.onOff, { onOff: on });
+        },
         close: () => device.close(),
     };
 }
