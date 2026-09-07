@@ -12,10 +12,10 @@ import type { AttributeValue, EndpointState } from "./types.ts";
 export interface EndpointEvents {
     /**
      * An endpoint became known to the system. Emitted after the commissioning transaction
-     * persists, so the state is complete and durable before any consumer sees it: the registry
-     * only has to store `endpoint`, and the server retransmits it so clients can render the new
-     * endpoint without a follow-up read. It carries the full state rather than ids because the
-     * bus is synchronous — a handler cannot assemble the state asynchronously.
+     * persists, so the state is complete and durable before any consumer sees it, and the server
+     * retransmits it so clients can render the new endpoint without a follow-up read. It carries
+     * the full state rather than ids because the bus is synchronous — a handler cannot assemble
+     * the state asynchronously.
      *
      * At this point `name` is the default the matter adapter derived from Basic Information
      * during the commissioning interview, and `roomId` is always `null`, since assigning a room
@@ -39,8 +39,9 @@ export interface EndpointEvents {
 
     /**
      * An attribute changed: a light turned on, a sensor reported, a lock moved. Emitted by the
-     * matter adapter on every attribute report, consumed by the registry to update its state and
-     * by the server to notify connected clients.
+     * matter adapter on every attribute report and consumed by the server, which notifies its
+     * connected clients. The registry does not consume it: it reads the value from the SDK's cache
+     * when a client next asks, and that cache is what the report just updated.
      */
     "endpoint:changed": {
         readonly endpointId: EndpointId;

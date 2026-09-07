@@ -11,9 +11,10 @@ import type { RoomState } from "./types.ts";
 export interface RoomEvents {
     /**
      * The user created a room through `room.add`. It carries the full state, as the other
-     * `*:added` events do, so a synchronous handler has everything it needs; the registry only
-     * has to store `room`. A new room holds no endpoints — assigning them happens later through
-     * `endpoint.setRoom`, which emits its own `endpoint:room-changed`.
+     * `*:added` events do, so a synchronous handler has everything it needs: the server forwards
+     * this payload to its subscribers as it stands, with no read of its own. A new room holds no
+     * endpoints — assigning them happens later through `endpoint.setRoom`, which emits its own
+     * `endpoint:room-changed`.
      */
     "room:added": {
         readonly room: RoomState;

@@ -13,8 +13,9 @@ export type Unsubscribe = () => void;
  *   - Synchronous dispatch: handlers run inline during `emit()`. A handler that throws must
  *     neither stop the remaining handlers nor propagate the error to the emitter;
  *     implementations log it and continue.
- *   - No replay: subscribers added after an `emit()` do not see past events. State hydration
- *     uses the registry's snapshot methods, not the bus.
+ *   - No replay: subscribers added after an `emit()` do not see past events. A subscriber that
+ *     needs a baseline asks the registry's Views for one, which compose it on demand; the bus
+ *     carries only what happens from then on.
  *   - No backpressure: this is a memory-only bus, not a queue. Persist before emitting when
  *     you need durability.
  */

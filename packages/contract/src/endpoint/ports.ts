@@ -2,12 +2,15 @@ import type { EndpointId, NodeId, RoomId } from "../common/ids.ts";
 import type { AttributeValue, EndpointRecord, EndpointShape, EndpointState } from "./types.ts";
 
 /**
- * Read-only access to the in-memory state of every endpoint, implemented by the registry. The
- * registry mutates it internally in reaction to the endpoint:* events and to `setName` /
- * `setRoom`.
+ * Read-only access to the state of every endpoint, implemented by the registry. There are no
+ * mutators because there is nothing here to mutate: each call composes its answer on the spot —
+ * `name` and `roomId` from the endpoint repository, device type and clusters from the gateway's
+ * `describe` — and holds nothing between calls, so the read model keeps no copy that could drift
+ * from either source.
  *
- * Both methods return a point-in-time copy that does not update itself; a consumer tracking
- * changes subscribes to the events rather than holding a reference.
+ * The endpoint:* events are therefore not what keeps this current. They exist for a consumer that
+ * does hold a copy — a connected client — and a caller on this side of the wire asks again rather
+ * than tracking them: what these methods return is a point-in-time value, not a live reference.
  *
  * Every endpoint returned has a corresponding node: orphans — mid-commissioning, or
  * transactionally removed — are never exposed.
@@ -130,9 +133,9 @@ export interface EndpointGateway {
      * read is neither needed while online nor possible while offline. Contrast `read` and
      * `invoke`, which do reach the device.
      *
-     * Whether the caller is the commissioning use-case, assembling the `endpoint:added` payload,
-     * or the registry receiving that event, is a wiring decision made where registry and matter
-     * meet; this signature serves both.
+     * The registry's endpoint view is the only caller, on every `list()` and `get()`. That is what
+     * makes the read model read-through: nothing here is projected into a store that would then
+     * have to be kept in step with the SDK's.
      */
     describe(id: EndpointId): EndpointShape;
 }

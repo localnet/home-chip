@@ -2,11 +2,16 @@ import type { NodeId } from "../common/ids.ts";
 import type { CommissioningResult, NodeInfo, NodeRecord, NodeState } from "./types.ts";
 
 /**
- * Read-only access to the in-memory state of every node, implemented by the registry. There are
- * no mutators on purpose: the registry updates itself in reaction to the node:* events.
+ * Read-only access to the state of every node, implemented by the registry. There are no mutators
+ * because there is nothing here to mutate: each call composes its answer on the spot — identity
+ * from the node repository, `reachable` from the matter gateway — and holds nothing between calls,
+ * so the read model keeps no copy that could drift from either source and has nothing to hydrate
+ * at start or tear down at stop.
  *
- * Both methods return a point-in-time copy that does not update itself; a consumer tracking
- * changes subscribes to the events rather than holding a reference. Lookups are O(1) by NodeId.
+ * The node:* events are therefore not what keeps this current. They exist for a consumer that does
+ * hold a copy — a connected client, which took its baseline from `hub.subscribe` — and a caller on
+ * this side of the wire asks again rather than tracking them: what these methods return is a
+ * point-in-time value, not a live reference.
  */
 export interface NodeView {
     list(): NodeState[];

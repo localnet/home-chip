@@ -2,11 +2,14 @@ import type { RoomId } from "../common/ids.ts";
 import type { RoomRecord, RoomState } from "./types.ts";
 
 /**
- * Read-only access to the in-memory state of every room, implemented by the registry. There are
- * no mutators on purpose: the registry updates itself in reaction to the room:* events.
+ * Read-only access to the state of every room, implemented by the registry. There are no mutators
+ * because there is nothing here to mutate: each call reads the room repository through and holds
+ * nothing between calls, a room's whole state living in the database with nothing to compose from
+ * the matter side.
  *
- * Both methods return a point-in-time copy that does not update itself; a consumer tracking
- * changes subscribes to the events rather than holding a reference.
+ * The room:* events are therefore not what keeps this current. They exist for a consumer that does
+ * hold a copy — a connected client — and a caller on this side of the wire asks again rather than
+ * tracking them: what these methods return is a point-in-time value, not a live reference.
  */
 export interface RoomView {
     list(): RoomState[];

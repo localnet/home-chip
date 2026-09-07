@@ -83,9 +83,9 @@ export interface EndpointState {
 
 /**
  * The portion of an endpoint the matter adapter owns and can produce from the SDK, returned by
- * `EndpointGateway.describe`. Its consumer — the commissioning use-case or the registry —
- * combines it with the database-owned `name` and `roomId` to assemble an `EndpointState`. Keeping
- * it separate is what spares the matter adapter from fabricating fields it does not own.
+ * `EndpointGateway.describe`. The registry combines it with the database-owned `name` and `roomId`
+ * to assemble an `EndpointState` on every read. Keeping it separate is what spares the matter
+ * adapter from fabricating fields it does not own.
  *
  * An internal assembly type: there is no `endpoint.getInfo` method and this never crosses the
  * wire. Hence `EndpointShape` and not `EndpointInfo` — the `*Info` vocabulary in this contract
@@ -100,7 +100,8 @@ export interface EndpointShape {
  * What the database holds for an endpoint: only the fields we own and that change over its
  * lifetime. Matter-side data — clusters, attributes, accepted commands, device type — is not
  * persisted; it lives in the SDK's own store, is reconstructed from there on every adapter
- * restart, and is served from the in-memory registry.
+ * restart, and reaches a client through `EndpointGateway.describe`, which the registry calls on
+ * every read.
  *
  * `matterNumber` is persisted because it is the local key within the node that re-correlates an
  * SDK endpoint back to our `EndpointId` when the identity map is rehydrated. It never appears in
