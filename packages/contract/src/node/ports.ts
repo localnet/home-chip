@@ -78,13 +78,16 @@ export interface NodeGateway {
      *
      *   1. Persist the node record and then the endpoint records in a single SQLite transaction —
      *      the FK constraint on endpoints.node_id requires the parent row first.
-     *   2. Emit `node:added`, then one `endpoint:added` per endpoint.
+     *   2. Emit `node:added`, and only that. The endpoints are persisted, so `endpoint.list` and
+     *      the next `hub.subscribe` snapshot carry them, but they are not announced one by one:
+     *      `endpoint:added` reports an endpoint turning up on a node already known, which is a
+     *      bridge exposing a device, not the endpoints a node arrives with.
      *   3. Only then resolve the response, which carries just the NodeId.
      *
      * That ordering is what lets clients rely on the event model: by the time anyone sees the
-     * response — the caller included — the events have already been delivered, so a frontend
-     * keeps one subscription to `node:*` and `endpoint:*` and reacts the same way whoever
-     * initiated the commissioning.
+     * response — the caller included — `node:added` has already been delivered, so a frontend
+     * keeps one subscription and reacts the same way whoever initiated the commissioning. What it
+     * does on receipt is read the node's endpoints, no event handing them over.
      *
      * If the transaction fails after the device is already paired, the use-case attempts a
      * best-effort `decommission` to leave it re-pairable. If that also fails, the device is paired

@@ -11,16 +11,20 @@ import type { AttributeValue, EndpointState } from "./types.ts";
  */
 export interface EndpointEvents {
     /**
-     * An endpoint became known to the system. Emitted after the commissioning transaction
-     * persists, so the state is complete and durable before any consumer sees it, and the server
-     * retransmits it so clients can render the new endpoint without a follow-up read. It carries
-     * the full state rather than ids because the bus is synchronous — a handler cannot assemble
-     * the state asynchronously.
+     * An endpoint turned up on a node that was already known — a Matter Bridge exposing a device
+     * paired with it. Not the endpoints a node arrives with: commissioning persists those inside
+     * its transaction and announces the node alone, leaving a client to read them with
+     * `endpoint.list` when `node:added` lands. This event is for what appears afterwards.
      *
-     * At this point `name` is the default the matter adapter derived from Basic Information
-     * during the commissioning interview, and `roomId` is always `null`, since assigning a room
-     * is a later user action reported through `endpoint:room-changed`. A Matter Bridge that adds
-     * an endpoint during normal operation emits the same event, assembled the same way.
+     * It carries the full state rather than ids because the bus is synchronous — a handler cannot
+     * assemble the state asynchronously — and the server retransmits it so clients can render the
+     * new endpoint without a follow-up read. `roomId` is always `null`, assigning a room being a
+     * later user action reported through `endpoint:room-changed`.
+     *
+     * Nothing emits it yet: dynamic bridge composition is not implemented, so a bridge's endpoints
+     * are the ones the commissioning interview found and no others. It is declared and forwarded
+     * regardless, so that the shape a client codes against does not change the day it starts
+     * firing.
      */
     "endpoint:added": {
         readonly endpoint: EndpointState;
@@ -28,8 +32,12 @@ export interface EndpointEvents {
     };
 
     /**
-     * An endpoint was removed from a node. Only for dynamic removals from a Matter Bridge:
-     * decommissioning a whole node emits `node:removed` and not one of these per endpoint.
+     * An endpoint disappeared from a node that stays — a Matter Bridge dropping a device.
+     * Decommissioning a whole node emits `node:removed` and not one of these per endpoint, the
+     * endpoints going with it through the `ON DELETE CASCADE` on `endpoints.node_id`.
+     *
+     * Not emitted yet either, for the reason `endpoint:added` is not, and declared for the same
+     * one.
      */
     "endpoint:removed": {
         readonly endpointId: EndpointId;

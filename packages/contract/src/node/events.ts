@@ -11,11 +11,14 @@ import type { NodeState } from "./types.ts";
 export interface NodeEvents {
     /**
      * A node was commissioned and now belongs to the fabric. Emitted after the commissioning
-     * transaction persists node and endpoints, immediately before the `endpoint:added` events for
-     * the same node. It carries the full state because the bus is synchronous and a handler
-     * cannot assemble it asynchronously: the server forwards this payload to its subscribers as it
-     * stands, with no read of its own. At this point `reachable` is always true, the session having
-     * just been established.
+     * transaction persists node and endpoints, and the only event commissioning emits: the
+     * endpoints a node arrives with are persisted rather than announced, so a client reads them
+     * with `endpoint.list` on receipt.
+     *
+     * It carries the full state because the bus is synchronous and a handler cannot assemble it
+     * asynchronously: the server forwards this payload to its subscribers as it stands, with no
+     * read of its own. At this point `reachable` is always true, the session having just been
+     * established.
      */
     "node:added": {
         readonly node: NodeState;

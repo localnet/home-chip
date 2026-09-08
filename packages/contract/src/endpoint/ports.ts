@@ -40,14 +40,15 @@ export interface EndpointRepository {
     findAll(): EndpointRecord[];
 
     /**
-     * Every endpoint of the given node. Used to enumerate what to delete on decommission, and to
-     * rebuild a node's identity at hydration.
+     * Every endpoint of the given node, for rebuilding its identity at hydration — the one caller
+     * there is. Decommissioning does not enumerate them: the cascade on endpoints.node_id takes
+     * them with the node row.
      */
     findByNode(nodeId: NodeId): EndpointRecord[];
 
     /**
-     * Inserts a new record. Called inside the commissioning transaction, after the node is saved
-     * and before the `endpoint:added` events are emitted.
+     * Inserts a new record. Called inside the commissioning transaction, after the node is saved.
+     * No event follows it there: commissioning announces the node alone.
      */
     save(record: EndpointRecord): void;
 
@@ -59,8 +60,8 @@ export interface EndpointRepository {
 
     /**
      * Removes one endpoint, for a dynamic removal from a Matter Bridge. Decommissioning a whole
-     * node deletes its endpoints in bulk inside the decommission transaction, not through N calls
-     * here.
+     * node does not come through here at all: deleting the node row takes its endpoints with it
+     * through the `ON DELETE CASCADE` on endpoints.node_id.
      *
      * Throws EndpointNotFoundError if the endpoint does not exist, as setName and setRoom do, so a
      * caller can emit `endpoint:removed` on the strength of this call alone rather than reading
