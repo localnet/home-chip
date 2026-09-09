@@ -40,8 +40,13 @@ describe("node/schemas", () => {
     });
 
     describe("validateCommissionParams", () => {
-        test("accepts the 11-digit manual pairing code", () => {
-            assert.deepEqual(validateCommissionParams({ setupCode: "12345678901" }), { setupCode: "12345678901" });
+        test("accepts both manual pairing code lengths", () => {
+            // 11 digits, and the 21 a device carries when its commissioning flow is non-standard
+            // and the code has to name the vendor and the product. Both come from
+            // ManualPairingCodeCodec.encode, so they are codes the SDK reads back.
+            for (const setupCode of ["34970112332", "749701123365521327687"]) {
+                assert.deepEqual(validateCommissionParams({ setupCode }), { setupCode });
+            }
         });
 
         test("accepts the MT: QR payload", () => {
@@ -54,20 +59,35 @@ describe("node/schemas", () => {
             assert.doesNotThrow(() => validateCommissionParams({ setupCode: "MT:Y.K9042C00KA*Y.K9042C00KB" }));
         });
 
-        test("rejects a QR payload past the 255 characters one product's code may have", () => {
-            // Core § 5.1.3.2 counts the limit over the whole code, MT: prefix included.
-            assert.doesNotThrow(() => validateCommissionParams({ setupCode: `MT:${"A".repeat(252)}` }));
-            assert.throws(() => validateCommissionParams({ setupCode: `MT:${"A".repeat(253)}` }), ValidationError);
+        test("bounds one payload at 255 Base38 characters, the MT: prefix not among them", () => {
+            assert.doesNotThrow(() => validateCommissionParams({ setupCode: `MT:${"A".repeat(255)}` }));
+            assert.throws(() => validateCommissionParams({ setupCode: `MT:${"A".repeat(256)}` }), ValidationError);
         });
 
-        test("rejects a manual code of the wrong length or with non-digits", () => {
-            for (const setupCode of ["1234567890", "123456789012", "1234567890a"]) {
+        test("bounds the whole code at 4296 characters, the MT: prefix among them", () => {
+            // Payloads of the maximum length, so the total is what each case turns on: sixteen of
+            // them run to 4098 characters and seventeen to 4354.
+            const payloads = (count: number) => `MT:${Array.from({ length: count }, () => "A".repeat(255)).join("*")}`;
+            assert.doesNotThrow(() => validateCommissionParams({ setupCode: payloads(16) }));
+            assert.throws(() => validateCommissionParams({ setupCode: payloads(17) }), ValidationError);
+        });
+
+        test("rejects a manual code of the wrong length or with anything but digits", () => {
+            for (const setupCode of [
+                "1234567890",
+                "123456789012",
+                "1234567890a",
+                "7497011233655213276871",
+                "3497-011-2332",
+                "3497 011 2332",
+                "abc34970112332",
+            ]) {
                 assert.throws(() => validateCommissionParams({ setupCode }), ValidationError);
             }
         });
 
-        test("rejects a QR payload outside the Base38 alphabet, and a bare prefix", () => {
-            for (const setupCode of ["MT:Y.K9042C00KA0648G00!", "mt:Y.K9042C00KA0648G00", "MT:"]) {
+        test("rejects a QR payload outside the Base38 alphabet, a bare prefix, and a bare separator", () => {
+            for (const setupCode of ["MT:Y.K9042C00KA0648G00!", "mt:Y.K9042C00KA0648G00", "MT:", "MT:*", "MT:A*"]) {
                 assert.throws(() => validateCommissionParams({ setupCode }), ValidationError);
             }
         });

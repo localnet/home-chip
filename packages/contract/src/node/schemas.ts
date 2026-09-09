@@ -56,15 +56,32 @@ export const validateGetInfoParams = (input: unknown): GetInfoParams => parseOrT
  * — the checksum, the Base38 decoding and the handshake belong to the SDK, and a failure there
  * surfaces as `CommissioningFailedError` with the specific SDK error in `cause`.
  *
- * The 255-character cap is the spec's maximum for one product's QR payload, counted with the "MT:"
- * prefix (Core § 5.1.3.2). The `*` that joins a concatenated payload is admitted on purpose: such
- * a code is well formed and names several devices, which the matter adapter rejects with an
- * `SetupCodeAmbiguousError` telling the client to split it — a better answer than calling the code
- * malformed here.
+ * A manual code is 11 digits, or 21 when it carries the vendor and product ids that a
+ * non-standard commissioning flow requires — a device whose pairing goes through a manufacturer
+ * app. Both lengths are what `ManualPairingCodeCodec` decodes, and the gateway hands the code to
+ * it untouched, so accepting only the shorter one turned every such device into a malformed code.
+ *
+ * The two QR bounds are that codec's, and they measure different things. Each `*`-separated
+ * payload carries at most 255 Base38 characters, the "MT:" prefix not among them; the whole
+ * string, prefix included, at most 4296. Hence the repetition below rather than one length check
+ * over the lot.
+ *
+ * `*` is a separator and not a payload character, which is why it sits between the repeats instead
+ * of in the class: a code that is nothing but separators is malformed, while a well-formed one
+ * naming several devices is admitted on purpose. The matter adapter answers that with a
+ * `SetupCodeAmbiguousError` telling the client which code to split — a better answer than refusing
+ * to read it here.
  */
+const MANUAL_CODE_PATTERN = /^(?:\d{11}|\d{21})$/;
+
+const QR_PAYLOAD_PATTERN = /^MT:[0-9A-Z.-]{1,255}(?:\*[0-9A-Z.-]{1,255})*$/;
+
 const setupCodeSchema = v.union(
-    [v.pipe(v.string(), v.regex(/^\d{11}$/)), v.pipe(v.string(), v.regex(/^MT:[0-9A-Z.*-]+$/), v.maxLength(255))],
-    "setupCode must be an 11-digit pairing code or an MT: QR payload",
+    [
+        v.pipe(v.string(), v.regex(MANUAL_CODE_PATTERN)),
+        v.pipe(v.string(), v.regex(QR_PAYLOAD_PATTERN), v.maxLength(4296)),
+    ],
+    "setupCode must be a manual pairing code of 11 or 21 digits, or an MT: QR payload",
 );
 
 const commissionParamsSchema = v.object({ setupCode: setupCodeSchema });
