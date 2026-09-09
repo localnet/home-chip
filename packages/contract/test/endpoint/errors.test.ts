@@ -90,4 +90,21 @@ describe("endpoint/errors", () => {
             assert.match(error.message, new RegExp(endpointId), `${error.name} message mismatch`);
         }
     });
+
+    test("each writes its Matter ids at the width the spec writes them", () => {
+        // OnOff is cluster 0x0006, its OnTime attribute 0x4001 and its Off command 0x00. Unpadded
+        // those read 0x6, 0x4001 and 0x0, and only the middle one is recognisable on sight.
+        assert.match(
+            new AttributeNotFoundError(endpointId, 0x0006, 0x4001).message,
+            /Attribute 0x4001 on cluster 0x0006/,
+        );
+        assert.match(new CommandNotFoundError(endpointId, 0x0006, 0x00).message, /Command 0x00 on cluster 0x0006/);
+        assert.match(new WriteRejectedError(endpointId, 0x0201, 0x0012, 0x88).message, /attribute 0x0012/);
+    });
+
+    test("a manufacturer-specific id keeps all eight of its nibbles", () => {
+        // Its MEI carries the vendor code in bits 31-16, so it is wider than the pad and padStart
+        // leaves it alone rather than truncating it to the standard width.
+        assert.match(new InteractionFailedError(endpointId, 0xfff1fc01, cause).message, /cluster 0xfff1fc01/);
+    });
 });
