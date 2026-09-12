@@ -1,6 +1,6 @@
 import * as v from "valibot";
 
-import { endpointIdSchema, parseOrThrow, roomIdSchema } from "../internal/valibot.ts";
+import { endpointIdSchema, nameSchema, parseOrThrow, roomIdSchema } from "../internal/valibot.ts";
 import type { AttributeValue } from "./types.ts";
 
 /**
@@ -157,19 +157,8 @@ export const validateInvokeParams = (input: unknown): InvokeParams => parseOrThr
 // ---------------------------------------------------------------------------
 // endpoint.setName
 
-/**
- * The [1, 64] bounds match what Apple Home and SmartThings allow for accessory names: long enough
- * to be descriptive, short enough to fit a UI without truncation. No charset restriction —
- * Unicode and emoji are allowed, and presentation-level normalization is the frontend's business.
- */
-const setNameParamsSchema = v.object({
-    id: endpointIdSchema,
-    name: v.pipe(
-        v.string(),
-        v.minLength(1, "name must not be empty"),
-        v.maxLength(64, "name must be at most 64 characters"),
-    ),
-});
+/** The name rule is `nameSchema`, shared with rooms; `internal/valibot.ts` carries its reasoning. */
+const setNameParamsSchema = v.object({ id: endpointIdSchema, name: nameSchema });
 
 type SetNameParams = v.InferOutput<typeof setNameParamsSchema>;
 

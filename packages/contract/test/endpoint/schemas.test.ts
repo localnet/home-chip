@@ -129,7 +129,7 @@ describe("endpoint/schemas", () => {
 
     describe("validateSetNameParams", () => {
         test("accepts anything within [1, 64] characters, unicode included", () => {
-            for (const name of ["L", "x".repeat(64), "Salón 🛋️"]) {
+            for (const name of ["L", "x".repeat(64), "Salón", "リビングのライト", "Luz #3 - pasillo"]) {
                 assert.doesNotThrow(() => validateSetNameParams({ id, name }));
             }
         });
@@ -138,6 +138,36 @@ describe("endpoint/schemas", () => {
             for (const name of ["", "x".repeat(65), 42]) {
                 assert.throws(() => validateSetNameParams({ id, name }), ValidationError);
             }
+        });
+
+        test("composes the name to NFC, so the two spellings of an accent cost the same", () => {
+            // "Salón" typed as e-plus-accent is 128 UTF-16 units at 64 letters and would not fit,
+            // while the precomposed spelling of the same text would.
+            const decomposed = "é".normalize("NFD");
+            assert.deepEqual(validateSetNameParams({ id, name: `Sal${"o\u0301"}n` }), { id, name: "Salón" });
+            assert.doesNotThrow(() => validateSetNameParams({ id, name: decomposed.repeat(64) }));
+            assert.throws(() => validateSetNameParams({ id, name: decomposed.repeat(65) }), ValidationError);
+        });
+
+        test("counts code points, which above the BMP is not what .length counts", () => {
+            // 𠀋 is a CJK extension character, two UTF-16 units and one code point. Emoji are not
+            // the only thing up there, which is why the count and the emoji rule are separate
+            // concerns rather than one standing in for the other.
+            assert.doesNotThrow(() => validateSetNameParams({ id, name: "𠀋".repeat(64) }));
+            assert.throws(() => validateSetNameParams({ id, name: "𠀋".repeat(65) }), ValidationError);
+        });
+
+        test("refuses an emoji however it is spelled", () => {
+            // A pictograph, a flag written as two regional indicators, a keycap built from an
+            // ordinary digit, and a ZWJ sequence: only the first is Extended_Pictographic on its
+            // own, so a rule written around that property alone would let the rest through.
+            for (const name of ["Radiador 😂", "Salón 🇪🇸", "Luz 1️⃣", "Cocina 👨‍👩‍👧", "Sol ☀️"]) {
+                assert.throws(() => validateSetNameParams({ id, name }), ValidationError);
+            }
+        });
+
+        test("refuses U+001F, which the SDK would truncate a name at", () => {
+            assert.throws(() => validateSetNameParams({ id, name: "Salón\u001foculto" }), ValidationError);
         });
     });
 

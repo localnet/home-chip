@@ -42,9 +42,15 @@ describe("room/schemas", () => {
         // asserting them twice would test one schema through two doors.
         test("accepts anything within [1, 64] characters, unicode included", () => {
             assert.deepEqual(validateAddParams({ name: "Living Room" }), { name: "Living Room" });
-            for (const name of ["L", "x".repeat(64), "Salón 🛋️"]) {
+            for (const name of ["L", "x".repeat(64), "Salón", "リビング"]) {
                 assert.doesNotThrow(() => validateAddParams({ name }));
             }
+        });
+
+        test("holds a room name to the shared name rule", () => {
+            // nameSchema is pinned in the endpoint tests; this checks rooms reach it at all.
+            assert.deepEqual(validateAddParams({ name: `Sal${"o\u0301"}n` }), { name: "Salón" });
+            assert.throws(() => validateAddParams({ name: "Salón 😂" }), ValidationError);
         });
 
         test("rejects an empty name, an over-long one, a non-string and a missing one", () => {
