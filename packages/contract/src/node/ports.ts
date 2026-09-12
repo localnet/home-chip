@@ -94,10 +94,12 @@ export interface NodeGateway {
      * on the fabric but unknown locally, and the use-case must surface it so the operator can
      * factory-reset the device.
      *
-     * A payload expires 15 minutes after it is generated, and an expired one surfaces as
-     * `CommissioningFailedError`. A device that still holds our fabric — commonly one dropped with
-     * `decommission(force)` — refuses the attempt as `AlreadyCommissionedError` and needs a
-     * factory reset first.
+     * An attempt against a closed window surfaces as `CommissioningFailedError`. How long it stays
+     * open is the device's or that admin's to choose within the bounds the spec sets, so no
+     * duration is ours to state.
+     *
+     * A device that still holds our fabric — commonly one dropped with `decommission(force)` —
+     * refuses the attempt as `DeviceAlreadyCommissionedError` and needs a factory reset first.
      */
     commission(setupCode: string): Promise<CommissioningResult>;
 

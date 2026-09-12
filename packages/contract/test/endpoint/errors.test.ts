@@ -99,7 +99,7 @@ describe("endpoint/errors", () => {
             /Attribute 0x4001 on cluster 0x0006/,
         );
         assert.match(new CommandNotFoundError(endpointId, 0x0006, 0x00).message, /Command 0x00 on cluster 0x0006/);
-        assert.match(new WriteRejectedError(endpointId, 0x0201, 0x0012, 0x88).message, /attribute 0x0012/);
+        assert.match(new WriteRejectedError(endpointId, 0x0201, 0x0012, 0x88).message, /Attribute 0x0012/);
     });
 
     test("a manufacturer-specific id keeps all eight of its nibbles", () => {
