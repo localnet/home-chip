@@ -76,17 +76,26 @@ class PlainLogger implements Logger {
         if (SEVERITY[level] < this.#threshold) {
             return;
         }
-        const message = values.map(render).join(" ");
         const head = `${level.toUpperCase()} ${this.#facility}`;
-        const tail = message === "" ? head : `${head} ${message}`;
         try {
+            const message = values.map(render).join(" ");
+            const tail = message === "" ? head : `${head} ${message}`;
             this.#stream.write(`${timestamp(new Date())} ${tail}\n`);
         } catch {
-            // Losing a log line must never take the home down with it. A destination that rejects
-            // the write synchronously — a destroyed stream, say — leaves stderr, in the shape the
-            // system logger expects (`home-chip: <context>: <detail>`) rather than the file's own
-            // line, so journald's timestamp is the only one on the entry.
-            process.stderr.write(`home-chip: log write failed, dropping line: ${tail}\n`);
+            // Three guarantees made elsewhere rest on this method not throwing, each of them a
+            // catch block whose only action is to log: the bus keeps a failing handler from
+            // costing the emitter, #shutdown keeps a failing stop() from costing the components
+            // that follow, and the commissioning use-cases report a node left orphaned in the
+            // fabric. A throw here replaces all three with itself.
+            //
+            // What can throw is the rendering, not the write: util.inspect runs the value's own
+            // inspect.custom hook, and every matter.js error carries one, reached through `cause`
+            // as well as directly. The write does not — an unusable destination is reported
+            // asynchronously, which is the StreamProvider's error handler and not this. So the
+            // message is what is missing here, being what could not be built, and the head goes
+            // to stderr in the shape the system logger expects (`home-chip: <context>: <detail>`),
+            // without the file's own timestamp so journald's is the only one on the entry.
+            process.stderr.write(`home-chip: log line failed, dropping it: ${head}\n`);
         }
     }
 }
