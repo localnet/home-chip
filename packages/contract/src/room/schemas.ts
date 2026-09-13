@@ -1,6 +1,6 @@
 import * as v from "valibot";
 
-import { parseOrThrow, roomIdSchema } from "../internal/valibot.ts";
+import { nameSchema, parseOrThrow, roomIdSchema } from "../internal/valibot.ts";
 
 /**
  * Validators for the room-namespace JSON-RPC methods. Each one parses its input and returns the
@@ -13,21 +13,6 @@ import { parseOrThrow, roomIdSchema } from "../internal/valibot.ts";
  *     import * as roomSchemas from "@home-chip/contract/room/schemas.ts";
  *     roomSchemas.validateGetParams(input);
  */
-
-// ---------------------------------------------------------------------------
-// Shared building blocks
-
-/**
- * The [1, 64] bounds are the ones endpoint names use, and match what Apple Home and SmartThings
- * allow: long enough to be descriptive, short enough to fit a UI without truncation. No charset
- * restriction — Unicode and emoji are allowed — and no uniqueness check, since two rooms may
- * legitimately share a name.
- */
-const roomNameSchema = v.pipe(
-    v.string(),
-    v.minLength(1, "name must not be empty"),
-    v.maxLength(64, "name must be at most 64 characters"),
-);
 
 // ---------------------------------------------------------------------------
 // room.list
@@ -56,8 +41,12 @@ export const validateGetParams = (input: unknown): GetParams => parseOrThrow(get
 // ---------------------------------------------------------------------------
 // room.add
 
-/** The client supplies only the name; the server mints the id and returns it. */
-const addParamsSchema = v.object({ name: roomNameSchema });
+/**
+ * The client supplies only the name; the server mints the id and returns it. The name is held to
+ * `nameSchema`, the rule endpoint names use, and what is room-specific is what is absent from it:
+ * no uniqueness check, since two rooms may legitimately share a name.
+ */
+const addParamsSchema = v.object({ name: nameSchema });
 
 type AddParams = v.InferOutput<typeof addParamsSchema>;
 
@@ -68,7 +57,7 @@ export const validateAddParams = (input: unknown): AddParams => parseOrThrow(add
 
 const setNameParamsSchema = v.object({
     id: roomIdSchema,
-    name: roomNameSchema,
+    name: nameSchema,
 });
 
 type SetNameParams = v.InferOutput<typeof setNameParamsSchema>;

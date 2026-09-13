@@ -13,7 +13,7 @@ import type { RoomEvents } from "./room/events.ts";
  * translates them into these first.
  *
  * The outcome of a request is not an event. It returns as the JSON-RPC response to the connection
- * that asked, and only the facts it produced along the way — `node:added`, `endpoint:added` — are
+ * that asked, and only the facts it produced along the way — `node:added`, `room:added` — are
  * broadcast here for every other connection to react to.
  */
 export type DomainEventMap = EndpointEvents & NodeEvents & RoomEvents;

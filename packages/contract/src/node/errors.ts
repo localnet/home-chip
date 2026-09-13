@@ -29,8 +29,7 @@ export class CommissioningFailedError extends IntegrationError {
 /**
  * The setup code is a concatenated QR payload: a single well-formed code that names several
  * devices, as a box of three bulbs may carry. Commissioning pairs one device and nothing in the
- * code says which, so it is refused rather than paired with whichever answers first — the same
- * choice both reference controllers make.
+ * code says which, so it is refused rather than paired with whichever answers first.
  *
  * A `ValidationError` because the client can act on it: scan or type one device's code. It is
  * raised by the matter adapter rather than by the schema, since counting the payloads means

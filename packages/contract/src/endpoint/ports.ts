@@ -2,12 +2,15 @@ import type { EndpointId, NodeId, RoomId } from "../common/ids.ts";
 import type { AttributeValue, EndpointRecord, EndpointShape, EndpointState } from "./types.ts";
 
 /**
- * Read-only access to the in-memory state of every endpoint, implemented by the registry. The
- * registry mutates it internally in reaction to the endpoint:* events and to `setName` /
- * `setRoom`.
+ * Read-only access to the state of every endpoint, implemented by the registry. There are no
+ * mutators because there is nothing here to mutate: each call composes its answer on the spot —
+ * `name` and `roomId` from the endpoint repository, device type and clusters from the gateway's
+ * `describe` — and holds nothing between calls, so the read model keeps no copy that could drift
+ * from either source.
  *
- * Both methods return a point-in-time copy that does not update itself; a consumer tracking
- * changes subscribes to the events rather than holding a reference.
+ * The endpoint:* events are therefore not what keeps this current. They exist for a consumer that
+ * does hold a copy — a connected client — and a caller on this side of the wire asks again rather
+ * than tracking them: what these methods return is a point-in-time value, not a live reference.
  *
  * Every endpoint returned has a corresponding node: orphans — mid-commissioning, or
  * transactionally removed — are never exposed.
@@ -37,14 +40,15 @@ export interface EndpointRepository {
     findAll(): EndpointRecord[];
 
     /**
-     * Every endpoint of the given node. Used to enumerate what to delete on decommission, and to
-     * rebuild a node's identity at hydration.
+     * Every endpoint of the given node, for rebuilding its identity at hydration — the one caller
+     * there is. Decommissioning does not enumerate them: the cascade on endpoints.node_id takes
+     * them with the node row.
      */
     findByNode(nodeId: NodeId): EndpointRecord[];
 
     /**
-     * Inserts a new record. Called inside the commissioning transaction, after the node is saved
-     * and before the `endpoint:added` events are emitted.
+     * Inserts a new record. Called inside the commissioning transaction, after the node is saved.
+     * No event follows it there: commissioning announces the node alone.
      */
     save(record: EndpointRecord): void;
 
@@ -56,8 +60,8 @@ export interface EndpointRepository {
 
     /**
      * Removes one endpoint, for a dynamic removal from a Matter Bridge. Decommissioning a whole
-     * node deletes its endpoints in bulk inside the decommission transaction, not through N calls
-     * here.
+     * node does not come through here at all: deleting the node row takes its endpoints with it
+     * through the `ON DELETE CASCADE` on endpoints.node_id.
      *
      * Throws EndpointNotFoundError if the endpoint does not exist, as setName and setRoom do, so a
      * caller can emit `endpoint:removed` on the strength of this call alone rather than reading
@@ -130,9 +134,9 @@ export interface EndpointGateway {
      * read is neither needed while online nor possible while offline. Contrast `read` and
      * `invoke`, which do reach the device.
      *
-     * Whether the caller is the commissioning use-case, assembling the `endpoint:added` payload,
-     * or the registry receiving that event, is a wiring decision made where registry and matter
-     * meet; this signature serves both.
+     * The registry's endpoint view is the only caller, on every `list()` and `get()`. That is what
+     * makes the read model read-through: nothing here is projected into a store that would then
+     * have to be kept in step with the SDK's.
      */
     describe(id: EndpointId): EndpointShape;
 }

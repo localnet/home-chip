@@ -47,8 +47,9 @@ export class NotFoundError extends AppError {
 }
 
 /**
- * The operation contradicts current state: commissioning a device that is already paired,
- * deleting a room that still has endpoints assigned.
+ * The operation contradicts current state: commissioning a device that is already paired. That is
+ * the only case today — deleting a room holding endpoints is not one of them, the FK on
+ * endpoints.room_id clearing the assignment rather than refusing the delete.
  */
 export class ConflictError extends AppError {
     readonly code = "CONFLICT_ERROR";

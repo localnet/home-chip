@@ -2,11 +2,16 @@ import type { NodeId } from "../common/ids.ts";
 import type { CommissioningResult, NodeInfo, NodeRecord, NodeState } from "./types.ts";
 
 /**
- * Read-only access to the in-memory state of every node, implemented by the registry. There are
- * no mutators on purpose: the registry updates itself in reaction to the node:* events.
+ * Read-only access to the state of every node, implemented by the registry. There are no mutators
+ * because there is nothing here to mutate: each call composes its answer on the spot — identity
+ * from the node repository, `reachable` from the matter gateway — and holds nothing between calls,
+ * so the read model keeps no copy that could drift from either source and has nothing to hydrate
+ * at start or tear down at stop.
  *
- * Both methods return a point-in-time copy that does not update itself; a consumer tracking
- * changes subscribes to the events rather than holding a reference. Lookups are O(1) by NodeId.
+ * The node:* events are therefore not what keeps this current. They exist for a consumer that does
+ * hold a copy — a connected client, which took its baseline from `hub.subscribe` — and a caller on
+ * this side of the wire asks again rather than tracking them: what these methods return is a
+ * point-in-time value, not a live reference.
  */
 export interface NodeView {
     list(): NodeState[];
@@ -73,23 +78,28 @@ export interface NodeGateway {
      *
      *   1. Persist the node record and then the endpoint records in a single SQLite transaction —
      *      the FK constraint on endpoints.node_id requires the parent row first.
-     *   2. Emit `node:added`, then one `endpoint:added` per endpoint.
+     *   2. Emit `node:added`, and only that. The endpoints are persisted, so `endpoint.list` and
+     *      the next `hub.subscribe` snapshot carry them, but they are not announced one by one:
+     *      `endpoint:added` reports an endpoint turning up on a node already known, which is a
+     *      bridge exposing a device, not the endpoints a node arrives with.
      *   3. Only then resolve the response, which carries just the NodeId.
      *
      * That ordering is what lets clients rely on the event model: by the time anyone sees the
-     * response — the caller included — the events have already been delivered, so a frontend
-     * keeps one subscription to `node:*` and `endpoint:*` and reacts the same way whoever
-     * initiated the commissioning.
+     * response — the caller included — `node:added` has already been delivered, so a frontend
+     * keeps one subscription and reacts the same way whoever initiated the commissioning. What it
+     * does on receipt is read the node's endpoints, no event handing them over.
      *
      * If the transaction fails after the device is already paired, the use-case attempts a
      * best-effort `decommission` to leave it re-pairable. If that also fails, the device is paired
      * on the fabric but unknown locally, and the use-case must surface it so the operator can
      * factory-reset the device.
      *
-     * A payload expires 15 minutes after it is generated, and an expired one surfaces as
-     * `CommissioningFailedError`. A device that still holds our fabric — commonly one dropped with
-     * `decommission(force)` — refuses the attempt as `AlreadyCommissionedError` and needs a
-     * factory reset first.
+     * An attempt against a closed window surfaces as `CommissioningFailedError`. How long it stays
+     * open is the device's or that admin's to choose within the bounds the spec sets, so no
+     * duration is ours to state.
+     *
+     * A device that still holds our fabric — commonly one dropped with `decommission(force)` —
+     * refuses the attempt as `DeviceAlreadyCommissionedError` and needs a factory reset first.
      */
     commission(setupCode: string): Promise<CommissioningResult>;
 

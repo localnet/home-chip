@@ -3,12 +3,21 @@ import type { EndpointId } from "../common/ids.ts";
 
 /**
  * A Matter identifier as the specification writes it, and as the SDK's own diagnostics do:
- * hexadecimal with an `0x` prefix. A cluster reads as 0x0201 everywhere Matter is documented, so
- * a message saying 513 leaves the reader converting before they can recognise it.
+ * hexadecimal with an `0x` prefix, zero-padded to the width of its element. A cluster reads as
+ * 0x0201 everywhere Matter is documented, so 513 leaves the reader converting and 0x201 leaves
+ * them re-padding.
+ *
+ * `nibbles` is 4 for a cluster and for an attribute, 2 for a command — the widths of the id ranges
+ * the spec assigns each, which agree today by coincidence of range rather than by rule. It is
+ * required rather than defaulted so that forgetting it does not quietly reproduce the unpadded
+ * form this replaced.
+ *
+ * A manufacturer-specific element needs no case of its own: its MEI carries the vendor code in
+ * bits 31-16, so it is at least 0x00010000 and padStart leaves all eight nibbles alone.
  *
  * Messages only. `data` carries the numbers, which is what a client switches on.
  */
-const hex = (id: number): string => `0x${id.toString(16)}`;
+const hex = (id: number, nibbles: number): string => `0x${id.toString(16).padStart(nibbles, "0")}`;
 
 /**
  * The requested endpoint does not exist in the registry. Inherits the `NOT_FOUND_ERROR` code:
@@ -31,7 +40,7 @@ export class EndpointNotFoundError extends NotFoundError {
  */
 export class AttributeNotFoundError extends NotFoundError {
     constructor(endpointId: EndpointId, clusterId: number, attributeId: number) {
-        super(`Attribute ${hex(attributeId)} on cluster ${hex(clusterId)} of endpoint ${endpointId} not found`, {
+        super(`Attribute ${hex(attributeId, 4)} on cluster ${hex(clusterId, 4)} of endpoint ${endpointId} not found`, {
             data: { endpointId, clusterId, attributeId },
         });
     }
@@ -46,7 +55,7 @@ export class AttributeNotFoundError extends NotFoundError {
  */
 export class CommandNotFoundError extends NotFoundError {
     constructor(endpointId: EndpointId, clusterId: number, commandId: number) {
-        super(`Command ${hex(commandId)} on cluster ${hex(clusterId)} of endpoint ${endpointId} not found`, {
+        super(`Command ${hex(commandId, 2)} on cluster ${hex(clusterId, 4)} of endpoint ${endpointId} not found`, {
             data: { endpointId, clusterId, commandId },
         });
     }
@@ -60,7 +69,7 @@ export class CommandNotFoundError extends NotFoundError {
  */
 export class CommandRejectedError extends IntegrationError {
     constructor(endpointId: EndpointId, clusterId: number, commandId: number, statusCode: number) {
-        super(`Command ${hex(commandId)} on cluster ${hex(clusterId)} of endpoint ${endpointId} was rejected`, {
+        super(`Command ${hex(commandId, 2)} on cluster ${hex(clusterId, 4)} of endpoint ${endpointId} was rejected`, {
             data: { endpointId, clusterId, commandId, statusCode },
         });
     }
@@ -76,7 +85,7 @@ export class CommandRejectedError extends IntegrationError {
 export class WriteRejectedError extends IntegrationError {
     constructor(endpointId: EndpointId, clusterId: number, attributeId: number, statusCode: number) {
         super(
-            `Write of attribute ${hex(attributeId)} on cluster ${hex(clusterId)} of endpoint ${endpointId} was rejected`,
+            `Attribute ${hex(attributeId, 4)} on cluster ${hex(clusterId, 4)} of endpoint ${endpointId} was rejected`,
             {
                 data: { endpointId, clusterId, attributeId, statusCode },
             },
@@ -96,7 +105,7 @@ export class WriteRejectedError extends IntegrationError {
  */
 export class InteractionFailedError extends IntegrationError {
     constructor(endpointId: EndpointId, clusterId: number, cause: unknown) {
-        super(`The Matter interaction on cluster ${hex(clusterId)} of endpoint ${endpointId} failed`, {
+        super(`The Matter interaction on cluster ${hex(clusterId, 4)} of endpoint ${endpointId} failed`, {
             cause,
             data: { endpointId, clusterId },
         });
@@ -114,7 +123,7 @@ export class InteractionFailedError extends IntegrationError {
  */
 export class EndpointAsleepError extends UnreachableError {
     constructor(endpointId: EndpointId, clusterId: number, cause: unknown) {
-        super(`Endpoint ${endpointId} cluster ${hex(clusterId)} could not be reached: the device is asleep`, {
+        super(`Endpoint ${endpointId} cluster ${hex(clusterId, 4)} could not be reached: the device is asleep`, {
             cause,
             data: { endpointId, clusterId },
         });
@@ -129,7 +138,7 @@ export class EndpointAsleepError extends UnreachableError {
  */
 export class EndpointOfflineError extends UnreachableError {
     constructor(endpointId: EndpointId, clusterId: number, cause: unknown) {
-        super(`Endpoint ${endpointId} cluster ${hex(clusterId)} could not be reached: the device is offline`, {
+        super(`Endpoint ${endpointId} cluster ${hex(clusterId, 4)} could not be reached: the device is offline`, {
             cause,
             data: { endpointId, clusterId },
         });
