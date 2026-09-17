@@ -43,7 +43,10 @@ export class JsonRpcDispatcher {
         }
 
         const request = outcome.request;
-        const handler = this.#handlers[request.method];
+        // Own properties only: the table is an object literal, so every Object.prototype member is
+        // reachable through it by name. Without this, `toString` answers with a result and
+        // `valueOf` with an internal error, where both are methods this hub does not have.
+        const handler = Object.hasOwn(this.#handlers, request.method) ? this.#handlers[request.method] : undefined;
         if (handler === undefined) {
             return errorResponse(request.id, {
                 code: JsonRpcErrorCode.MethodNotFound,

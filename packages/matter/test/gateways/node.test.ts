@@ -215,6 +215,14 @@ describe("SdkNodeGateway", () => {
     });
 
     describe("setup code forms", () => {
+        /** The fields these tests read back off the options the gateway handed the SDK. */
+        type SeenOptions = {
+            pairingCode?: string;
+            passcode?: number;
+            discriminator?: number;
+            autoStateInitialize?: boolean;
+        };
+
         /** A gateway whose commissioning records the options it was handed. */
         function gatewayRecording(): { gateway: SdkNodeGateway; options: () => unknown } {
             let seen: unknown;
@@ -237,7 +245,21 @@ describe("SdkNodeGateway", () => {
 
             await assert.rejects(() => gateway.commission("34970112332"));
 
-            assert.deepEqual(options(), { pairingCode: "34970112332" });
+            const seen = options() as SeenOptions;
+            assert.equal(seen.pairingCode, "34970112332");
+            // Not decoded here: had it been, the SDK would receive the parts instead.
+            assert.equal(seen.passcode, undefined);
+        });
+
+        test("asks for the initial state read on every commission", async () => {
+            // The endpoints commission() composes come from that read, and the option is the only
+            // place the SDK takes the answer from. Asserted apart from the setup-code tests around
+            // it, which are about the code's form and not about what else the options carry.
+            const { gateway, options } = gatewayRecording();
+
+            await assert.rejects(() => gateway.commission("34970112332"));
+
+            assert.equal((options() as SeenOptions).autoStateInitialize, true);
         });
 
         test("decodes a QR payload here, the SDK's pairingCode reading only manual codes", async () => {
@@ -256,7 +278,12 @@ describe("SdkNodeGateway", () => {
 
             await assert.rejects(() => gateway.commission(qr));
 
-            assert.deepEqual(options(), { passcode: 20202021, discriminator: 3840 });
+            const seen = options() as SeenOptions;
+            assert.equal(seen.passcode, 20202021);
+            assert.equal(seen.discriminator, 3840);
+            // Not handed over as a pairing code: the SDK's own reading of that field takes manual
+            // codes only, so a QR passed through would never be decoded at all.
+            assert.equal(seen.pairingCode, undefined);
         });
 
         test("refuses a QR payload carrying more than one device", async () => {

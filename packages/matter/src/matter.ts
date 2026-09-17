@@ -148,21 +148,38 @@ class SdkMatterProvider implements MatterProvider {
             // The label our fabric carries on every device we commission, which is what a user
             // reads when another ecosystem lists a shared device's admins. It says who we are,
             // the same thing vendorName says, so it comes from there rather than from a second
-            // constant that could drift. ControllerBehavior refuses to start without one, and a
-            // fabric label is capped at 32 characters.
+            // constant that could drift. Left unset the SDK does not object, it labels our fabric
+            // "matter.js"; whatever it says is capped at 32 characters, ControllerBehavior
+            // pushing the label through Fabric.setLabel on start, which refuses anything longer.
             controller: { adminFabricLabel: BASIC_INFORMATION.vendorName },
         });
+        // Both are inert until started — fields and an ObserverGroup holder — so they are built
+        // here, where the controller they are given exists, and started below.
+        const node = new SdkNodeGateway(this.#logger, this.#bus, this.#identity, controller);
+        const endpoint = new SdkEndpointGateway(this.#logger, this.#bus, this.#identity);
+
         await controller.start();
+
+        // Hydrated after the controller is up, where the peers' state is guaranteed rather than
+        // merely observed to be there. Before the watchers is a choice and not a requirement:
+        // NodeWatcher.start() subscribes to additions and also walks what is already mapped, so
+        // either side of them observes the same set — and this side leaves the walk, which exists
+        // for exactly this, as the branch that does it.
+        //
+        // Attaching before controller.start() instead would be the only way to catch a peer that
+        // connected during it, and it is possible — a peer's address and endpoints are readable
+        // from storage as soon as the node is created — but a first connection lands well after
+        // start() returns rather than inside it, so there is nothing there to catch.
         this.#hydrateIdentity(controller);
+        node.start();
+        endpoint.start();
 
-        // After hydration, so both observe the nodes the IdentityMap already holds as well as the
-        // ones added later.
-        this.#node = new SdkNodeGateway(this.#logger, this.#bus, this.#identity, controller);
-        this.#node.start();
-        this.#endpoint = new SdkEndpointGateway(this.#logger, this.#bus, this.#identity);
-        this.#endpoint.start();
-
+        // Assigned last and together: a start that failed leaves the provider holding none of the
+        // three, so stop() is a no-op over nothing rather than meeting a gateway already started,
+        // its observers attached, and no controller for the guard to let it through.
         this.#controller = controller;
+        this.#node = node;
+        this.#endpoint = endpoint;
 
         this.#logger.notice("controller ready", this.#rootPath);
     }
@@ -176,13 +193,18 @@ class SdkMatterProvider implements MatterProvider {
         const endpoint = this.#endpoint;
 
         this.#controller = undefined;
-        this.#identity.clear();
         this.#node = undefined;
         this.#endpoint = undefined;
 
-        // Stop observing before closing: the watchers hold SDK observers that read the map. A
-        // later start rehydrates from the repository, so the nodes of this run would meet
-        // themselves as duplicates if the map survived.
+        // Cleared before the stops below, so a later start rehydrates from the repository into an
+        // empty index: the nodes of this run would otherwise meet themselves as duplicates, which
+        // addNode refuses.
+        this.#identity.clear();
+
+        // Stop observing before closing: closing takes every peer down, and with the watchers
+        // still attached each one's offline would leave as a node:disconnected — an orderly
+        // shutdown reporting the whole house dropping off, one event per node, with nobody left
+        // to read them.
         endpoint.stop();
         node.stop();
         await controller.close();

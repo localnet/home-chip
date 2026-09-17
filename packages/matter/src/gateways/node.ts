@@ -19,14 +19,20 @@ import type { NodeGateway } from "@home-chip/contract/node/ports.ts";
 import type { CommissioningResult, NodeInfo } from "@home-chip/contract/node/types.ts";
 import { NoResponseTimeoutError, type ObserverGroup } from "@matter/main";
 import { BasicInformationClient } from "@matter/main/behaviors/basic-information";
-import { type ClientNode, IcdPeerAsleepError, type ServerNode } from "@matter/main/node";
+import {
+    type ClientNode,
+    type CommissioningClient,
+    type CommissioningDiscovery,
+    IcdPeerAsleepError,
+    type ServerNode,
+} from "@matter/main/node";
 import { DeviceAlreadyCommissionedToThisFabricError, TransientPeerCommunicationError } from "@matter/main/protocol";
 import { type QrCodeData, QrPairingCodeCodec } from "@matter/main/types";
 
 import type { IdentityMap, NodeIdentity } from "../identity.ts";
 import { NodeWatcher } from "../watcher.ts";
 
-/** The prefix a QR onboarding payload carries, per Core § 5.1.3.1. */
+/** The prefix a QR onboarding payload carries. */
 const QR_PREFIX = "MT:";
 
 /**
@@ -48,11 +54,6 @@ export class SdkNodeGateway implements NodeGateway {
     readonly #identity: IdentityMap;
     readonly #controller: ServerNode;
     readonly #watcher: NodeWatcher;
-    /**
-     * Nodes being removed from the fabric right now. A node on its way out goes offline as part of
-     * leaving, and reporting that as a disconnection would surface to a user as a device dropping
-     * off moments before they are told it is gone — for a removal they asked for.
-     */
     readonly #decommissioning = new Set<NodeId>();
 
     constructor(logger: Logger, bus: DomainEventBus, identity: IdentityMap, controller: ServerNode) {
@@ -78,7 +79,13 @@ export class SdkNodeGateway implements NodeGateway {
     }
 
     async commission(setupCode: string): Promise<CommissioningResult> {
-        const options = this.#commissioningOptions(setupCode);
+        const options: CommissioningDiscovery.Options = {
+            ...this.#setupCodeOptions(setupCode),
+            // Set rather than left to its default, which is this same read. It is the one link of
+            // the chain below that we control, and the SDK takes it from here and nowhere else;
+            // off, a commissioned node would come back with no structure read at all.
+            autoStateInitialize: true,
+        };
         let node: ClientNode;
         try {
             node = await this.#controller.peers.commission(options);
@@ -92,6 +99,18 @@ export class SdkNodeGateway implements NodeGateway {
             throw new CommissioningFailedError(error);
         }
 
+        // From here the device is in the fabric, and a throw below leaves it there. What the
+        // use-case compensates is a failed transaction, so nothing would decommission it and no
+        // id would reach the caller to retry with: recovery is a factory reset. Accepted rather
+        // than guarded — what can throw below is a broken SDK invariant or a watcher failing to
+        // attach, neither an expected case — but this is what failing loudly costs right here.
+
+        // The structure is readable here with no wait, by construction rather than by luck:
+        // commission() ends by awaiting node.start(), whose network startup awaits
+        // NetworkClient.startup(), which for a newly-commissioned node performs and drains the
+        // wildcard read the option above asks for. That read fills both the BasicInformation the
+        // next line reads and the endpoints composed after it. Worth re-checking on an SDK bump:
+        // the chain breaks quietly, the node coming back as its root endpoint alone.
         const nodeId = createNodeId();
         const matterId = this.#requireMatterId(node);
         const endpoints = this.#composeEndpoints(nodeId, node);
@@ -174,14 +193,15 @@ export class SdkNodeGateway implements NodeGateway {
     }
 
     /**
-     * Turns a setup code into the SDK's commissioning options. The manual pairing code goes
-     * through as `pairingCode`, which is the only form the SDK decodes for us; a QR payload has
-     * to be decoded here, since `pairingCode` runs it through the manual codec and fails.
+     * Turns a setup code into the options that say which device to commission — that part alone,
+     * the rest of what commission() hands the SDK being its own business. The manual pairing code
+     * goes through as `pairingCode`, which is the only form the SDK decodes for us; a QR payload
+     * has to be decoded here, since `pairingCode` runs it through the manual codec and fails.
      *
      * A QR payload may carry several devices concatenated, one per product. Nothing in it says
      * which to pair, so it is refused rather than paired with whichever answers first.
      */
-    #commissioningOptions(setupCode: string): { pairingCode: string } | { passcode: number; discriminator: number } {
+    #setupCodeOptions(setupCode: string): CommissioningClient.CommissioningOptions {
         if (!setupCode.startsWith(QR_PREFIX)) {
             return { pairingCode: setupCode };
         }

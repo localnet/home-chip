@@ -125,12 +125,16 @@ class SqliteDatabaseProvider implements DatabaseProvider {
         }
         const connection = this.#connection;
 
-        connection.close();
+        // Released before the close, not after: the fields say the connection and the four
+        // capabilities built on it are usable, and from here they are not. Reaching for one
+        // now gets the window error, which is accurate.
         this.#connection = undefined;
         this.#transactor = undefined;
         this.#node = undefined;
         this.#endpoint = undefined;
         this.#room = undefined;
+
+        connection.close();
 
         this.#logger.notice("closed");
     }

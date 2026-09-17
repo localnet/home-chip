@@ -1,6 +1,7 @@
 import { strict as assert } from "node:assert";
 import { Writable } from "node:stream";
 import { describe, mock, test } from "node:test";
+import { inspect } from "node:util";
 
 import { LogLevel } from "@home-chip/contract/logger/types.ts";
 
@@ -77,21 +78,26 @@ describe("logger", () => {
             assert.match(failure.only, /Error: boom\n\s+at /);
         });
 
-        test("falls back to stderr when the destination throws, without the file's timestamp", () => {
-            const broken = new Writable({
-                write(): void {
-                    throw new Error("destroyed");
+        test("falls back to stderr when a value cannot be rendered, without the file's timestamp", () => {
+            const sink = new MemorySink();
+            // util.inspect runs the value's own hook rather than rendering it from outside, and
+            // every matter.js error carries one, so what runs there is foreign code.
+            const hostile = {
+                [inspect.custom]() {
+                    throw new Error("boom");
                 },
-            });
+            };
             const stderr = mock.method(process.stderr, "write", () => true);
 
             try {
-                createLogger(broken, LogLevel.Info).info("survives");
+                createLogger(sink, LogLevel.Info).info("survives", hostile);
 
+                assert.equal(sink.lines.length, 0);
                 assert.equal(stderr.mock.callCount(), 1);
                 const written = stderr.mock.calls[0]?.arguments[0] as string;
-                assert.match(written, /^home-chip: log write failed, dropping line: /);
-                assert.match(written, /INFO Hub survives\n$/);
+                assert.match(written, /^home-chip: log line failed, dropping it: /);
+                // The message is absent: it is the part that could not be built.
+                assert.match(written, /INFO Hub\n$/);
                 // The plain timestamp is absent on purpose: the system logger stamps its own, and
                 // two timestamps on one entry read as a bug.
                 assert.doesNotMatch(written, /\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/);

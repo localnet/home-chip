@@ -46,7 +46,11 @@ type RemovedListener = (nodeId: NodeId) => void;
  *
  * Additions and removals notify listeners, so the gateways can start and stop watching a node
  * without going through the domain event bus: translating ids is this package's own business,
- * not something the rest of the hub reacts to.
+ * not something the rest of the hub reacts to. A closed channel and not a bus, which is why it
+ * does not copy the listener set, guard a stale unsubscribe, or isolate a listener that throws,
+ * all of which SyncEventBus does. Its subscribers are this package's two watchers, and one that
+ * fails to attach leaves a node unobserved for the rest of the run: that failure belongs to the
+ * caller that was commissioning, not to a log line.
  */
 export class IdentityMap {
     readonly #nodes = new Map<NodeId, ClientNode>();

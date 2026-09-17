@@ -91,7 +91,12 @@ class RotatingStreamProvider implements StreamProvider {
         // here it is not. Reaching for it now gets the window error, which is accurate.
         this.#stream = undefined;
 
-        // Awaited so the pending tail reaches disk before the process moves on.
+        // Awaited so the pending tail reaches disk before the process moves on, when there is
+        // still a stream to flush. One rfs already destroyed after a mid-run failure calls back
+        // with ERR_STREAM_DESTROYED and nothing flushed, which is why that error is dropped: the
+        // failure itself has gone to stderr through the handler above, and the callback names the
+        // consequence rather than the cause. So stop() resolves either way, with nothing of its
+        // own to add.
         await new Promise<void>((resolve) => {
             stream.end(() => resolve());
         });
