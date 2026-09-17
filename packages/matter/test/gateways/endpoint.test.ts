@@ -34,6 +34,10 @@ const THERMOSTAT_CLUSTER = 0x0201;
 const SETPOINT_RAISE_LOWER_COMMAND = 0;
 const OFF_COMMAND = 0;
 const OCCUPIED_HEATING_SETPOINT = 0x12;
+// Descriptor (0x001d) is served by every endpoint, and its PartsList is a list, which is what
+// makes it a value the SDK has to encode rather than pass through.
+const DESCRIPTOR_CLUSTER = 0x001d;
+const PARTS_LIST_ATTRIBUTE = 3;
 // MEI type suffix past 0x4fff, which is what makes them unaddressable rather than merely absent.
 const UNADDRESSABLE_CLUSTER = 0x99999999;
 const UNADDRESSABLE_ATTRIBUTE = 0x9999;
@@ -133,6 +137,18 @@ describe("SdkEndpointGateway", () => {
             await assert.rejects(() => gateway.write(endpointId, ON_OFF_CLUSTER, 0x9999, 1), AttributeNotFoundError);
         });
 
+        test("throws ValidationError for a value the attribute's type does not accept", async (t) => {
+            // The SDK encodes the value against the attribute's schema while the request is
+            // built, so a list attribute handed a scalar fails with nothing contacted. That is
+            // what separates it from the rejected write below, which needs a device to refuse.
+            const { gateway, endpointId } = await setup(t);
+
+            await assert.rejects(
+                () => gateway.write(endpointId, DESCRIPTOR_CLUSTER, PARTS_LIST_ATTRIBUTE, 5),
+                ValidationError,
+            );
+        });
+
         test("throws WriteRejectedError when the device refuses the write", async (t) => {
             // OnOff itself is read-only, so the device answers UNSUPPORTED_WRITE and the status
             // is what tells a client which refusal it met.
@@ -161,6 +177,18 @@ describe("SdkEndpointGateway", () => {
             const { gateway, endpointId } = await setup(t);
             // Command id 9999 does not exist on the OnOff cluster.
             await assert.rejects(() => gateway.invoke(endpointId, ON_OFF_CLUSTER, 9999), CommandNotFoundError);
+        });
+
+        test("throws ValidationError for arguments the command's fields do not accept", async (t) => {
+            // The same command the device refuses below, with a mandatory field left out. The SDK
+            // encodes the fields while the request is built, so this one never reaches a device
+            // and cannot carry a status.
+            const { gateway, endpointId } = await setup(t);
+
+            await assert.rejects(
+                () => gateway.invoke(endpointId, THERMOSTAT_CLUSTER, SETPOINT_RAISE_LOWER_COMMAND, { mode: 0 }),
+                ValidationError,
+            );
         });
 
         test("throws CommandRejectedError when the device refuses the command", async (t) => {

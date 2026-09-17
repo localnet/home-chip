@@ -29,8 +29,20 @@ config.loadConfigFile = false;
 // argument this module does not have, and the SDK reads it lazily on every use.
 config.storageDriver = "sqlite";
 
-// The SDK installs SIGINT/SIGTERM handlers that run a shutdown of its own. The hub's entry point
-// already owns process signals — it stops everything in order and exits — so the SDK's handlers
-// only race it: on Ctrl+C both shut down at once and the SDK keeps writing to matter/hub.log
-// after the hub has closed it. One owner of the signals removes the race.
+// The SDK traps SIGINT, SIGTERM, SIGUSR2 and SIGABRT, platform depending, and runs a shutdown of
+// its own on each. The hub's entry point already owns the first two — it stops everything in
+// order and exits — so there the SDK's handlers only race it: on Ctrl+C both shut down at once
+// and the SDK keeps writing to matter/hub.log after the hub has closed it. One owner of those
+// signals removes the race. The other two are left to Node's default deliberately: neither is
+// part of how the hub is stopped, and an abort is not something to meet with an orderly
+// shutdown.
 config.trapProcessSignals = false;
+
+// Kept on, and set rather than left to the default so that a flip in a patch release cannot take
+// it away quietly. It is narrower than its name suggests: it adds an uncaughtExceptionMonitor
+// listener, a monitor rather than a handler, so Node still dies the way it would have, and it
+// does nothing at all for an unhandled rejection. What it buys is the report, written through the
+// SDK's own Logger — so an uncaught exception reaches matter/hub.log rather than hub.log, nothing
+// here installing a handler of its own. An odd file for it, and better than stderr alone, which
+// is where it would go otherwise.
+config.trapUnhandledErrors = true;

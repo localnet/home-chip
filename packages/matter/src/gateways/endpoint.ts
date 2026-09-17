@@ -23,21 +23,13 @@ import type {
 import type { DomainEventBus } from "@home-chip/contract/events.ts";
 import type { Logger } from "@home-chip/contract/logger/ports.ts";
 import { NoResponseTimeoutError, type Observable, type ObserverGroup } from "@matter/main";
-import { type ClientNode, type Endpoint, IcdPeerAsleepError } from "@matter/main/node";
+import { type ClientNode, ClusterBehavior, type Endpoint, IcdPeerAsleepError } from "@matter/main/node";
 import { Invoke, Read, TransientPeerCommunicationError, Write } from "@matter/main/protocol";
 import { AttributeId, ClusterId, EndpointNumber, Status } from "@matter/main/types";
 
 import { clusterModel } from "../clusters.ts";
 import type { IdentityMap, NodeIdentity } from "../identity.ts";
 import { NodeWatcher } from "../watcher.ts";
-
-/** The runtime shape of a supported behavior's cluster model that watch() navigates. */
-interface ClusterBehavior {
-    readonly cluster?: {
-        readonly id?: number;
-        readonly attributes: Record<string, { readonly id: number }>;
-    };
-}
 
 /**
  * A per-attribute change observable, as found on an endpoint's events under
@@ -56,8 +48,11 @@ type ChangeObservable = Observable<[value: unknown]>;
  * transient-communication families. Anything else is a failure of the interaction itself, about
  * which nothing further is asserted.
  *
- * The callers wrap only the SDK call, resolution and model lookups happening before it, so no
- * domain error can arrive here to be mapped a second time.
+ * The callers keep their own errors out of the wrapped region where they can: write and invoke
+ * drain the response inside it and decide after, so a rejected status is raised where this cannot
+ * see it. read cannot join them — its not-found is the stream's own answer, detected where the
+ * value would have been — so it raises AttributeNotFoundError inside and its catch lets that one
+ * straight through. Nothing else arrives here already translated.
  */
 function interactionError(error: unknown, endpointId: EndpointId, clusterId: number): AppError {
     if (error instanceof IcdPeerAsleepError) {
@@ -67,29 +62,6 @@ function interactionError(error: unknown, endpointId: EndpointId, clusterId: num
         return new EndpointOfflineError(endpointId, clusterId, error);
     }
     return new InteractionFailedError(endpointId, clusterId, error);
-}
-
-/**
- * Drains an invoke response into the statuses it reported. The SDK streams a response as chunks
- * of results, so collecting first keeps the throw for a refused command out of the iteration,
- * where it would otherwise have to be caught and rethrown to get past the error mapping below.
- *
- * A write needs none of this — it answers with an array — and a read cannot use it either: it
- * must stop at the first value rather than drain, and each entry carries a value where these
- * carry only a status.
- */
-async function collectStatuses(
-    response: AsyncIterable<Iterable<{ kind: string; status?: Status }>>,
-): Promise<number[]> {
-    const statuses: number[] = [];
-    for await (const chunk of response) {
-        for (const result of chunk) {
-            if (result.kind === "cmd-status" && result.status !== undefined) {
-                statuses.push(result.status);
-            }
-        }
-    }
-    return statuses;
 }
 
 /**
@@ -192,14 +164,27 @@ export class SdkEndpointGateway implements EndpointGateway {
             throw new AttributeNotFoundError(endpointId, clusterId, attributeId);
         }
 
-        const request = Write(
-            Write.Attribute({
-                endpoint: EndpointNumber(endpointNumber),
-                cluster: entry.cluster as Parameters<typeof Write.Attribute>[0]["cluster"],
-                attributes: attribute,
-                value,
-            }),
-        );
+        // Built before the interaction and outside it, because this is where the SDK encodes the
+        // value against the attribute's schema: a value the schema does not accept throws here,
+        // not at the device. A list attribute handed a scalar throws a plain TypeError, so the
+        // catch is untyped. Nothing was contacted, so the parameter is what is wrong, not the
+        // device refusing — WriteRejectedError carries a status only the device can give.
+        let request: Write;
+        try {
+            request = Write(
+                Write.Attribute({
+                    endpoint: EndpointNumber(endpointNumber),
+                    cluster: entry.cluster,
+                    attributes: attribute,
+                    value,
+                }),
+            );
+        } catch (error) {
+            throw new ValidationError("Value does not match the attribute's type", {
+                cause: error,
+                data: { endpointId, clusterId, attributeId },
+            });
+        }
 
         let statuses: { status: Status }[];
         try {
@@ -227,16 +212,36 @@ export class SdkEndpointGateway implements EndpointGateway {
             throw new CommandNotFoundError(endpointId, clusterId, commandId);
         }
 
-        // A command with no fields is invoked with args omitted (undefined), which is what
-        // the SDK expects as void; commands that take fields receive them as-is (and the SDK
-        // rejects a missing required field with its own validation error).
-        const request = Invoke({
-            commands: [{ endpoint: EndpointNumber(endpointNumber), cluster: entry.cluster, command, fields: args }],
-        });
-
-        let statuses: number[];
+        // A command with no fields is invoked with args omitted (undefined), which is what the SDK
+        // expects as void; commands that take fields receive them as-is. Built inside the try
+        // because this is where the SDK encodes those fields against the command's schema: a field
+        // of the wrong type, or a mandatory one the client left out, throws here rather than at
+        // the device. Nothing was contacted, so the arguments are what is wrong, not the device
+        // refusing — CommandRejectedError carries a status only the device can give.
+        let request: Invoke;
         try {
-            statuses = await collectStatuses(node.interaction.invoke(request));
+            request = Invoke({
+                commands: [{ endpoint: EndpointNumber(endpointNumber), cluster: entry.cluster, command, fields: args }],
+            });
+        } catch (error) {
+            throw new ValidationError("Command arguments do not match the command's fields", {
+                cause: error,
+                data: { endpointId, clusterId, commandId },
+            });
+        }
+
+        const statuses: number[] = [];
+        try {
+            // Drained before the check below, and not thrown from inside the loop: a
+            // CommandRejectedError raised here would fall into the catch and come back out as an
+            // InteractionFailedError, the device's status lost on the way.
+            for await (const chunk of node.interaction.invoke(request)) {
+                for (const result of chunk) {
+                    if (result.kind === "cmd-status" && result.status !== undefined) {
+                        statuses.push(result.status);
+                    }
+                }
+            }
         } catch (error) {
             throw interactionError(error, endpointId, clusterId);
         }
@@ -278,18 +283,17 @@ export class SdkEndpointGateway implements EndpointGateway {
      * excluded — the schema's `attributes` lists only the real cluster attributes.
      */
     #clustersOf(endpoint: Endpoint): ClusterState[] {
-        const supported = endpoint.behaviors.supported as Record<string, ClusterBehavior>;
         const allState = endpoint.state as Record<string, Record<string, unknown> | undefined>;
         const clusters: ClusterState[] = [];
 
-        for (const [behaviorName, behaviorType] of Object.entries(supported)) {
-            const cluster = behaviorType.cluster;
-            if (cluster?.id === undefined) {
+        for (const [behaviorName, behaviorType] of Object.entries(endpoint.behaviors.supported)) {
+            if (!ClusterBehavior.is(behaviorType)) {
                 continue;
             }
+            const cluster = behaviorType.cluster;
             const state = allState[behaviorName] ?? {};
             const attributes: AttributeState[] = [];
-            for (const [attributeName, attribute] of Object.entries(cluster.attributes)) {
+            for (const [attributeName, attribute] of Object.entries(cluster.attributes ?? {})) {
                 const value = state[attributeName];
                 // Skip an attribute the schema lists but the device did not report a value
                 // for: AttributeValue has no `undefined`, and null would be fabricated.
@@ -341,17 +345,15 @@ export class SdkEndpointGateway implements EndpointGateway {
         // model (numeric id + named attributes), and per-attribute change observables live on
         // the endpoint's events under `<attribute>$Changed`. Observers are registered through
         // the owning node's group so they can all be detached when that node goes away.
-        const supported = endpoint.behaviors.supported as Record<string, ClusterBehavior>;
         const allEvents = endpoint.events as Record<string, Record<string, ChangeObservable | undefined> | undefined>;
 
-        for (const [behaviorName, behaviorType] of Object.entries(supported)) {
-            const cluster = behaviorType.cluster;
-            if (cluster?.id === undefined) {
+        for (const [behaviorName, behaviorType] of Object.entries(endpoint.behaviors.supported)) {
+            if (!ClusterBehavior.is(behaviorType)) {
                 continue;
             }
-            const clusterId = cluster.id;
+            const clusterId = behaviorType.cluster.id;
             const events = allEvents[behaviorName];
-            for (const [attributeName, attribute] of Object.entries(cluster.attributes)) {
+            for (const [attributeName, attribute] of Object.entries(behaviorType.cluster.attributes ?? {})) {
                 const attributeId = attribute.id;
                 const observable = events?.[`${attributeName}$Changed`];
                 if (typeof observable?.on !== "function") {

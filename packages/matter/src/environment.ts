@@ -42,8 +42,10 @@ export function configureEnvironment(rootPath: string, stream: Writable, options
     environment.vars.set("storage.path", rootPath);
 
     // The SDK ships a destination named "default" writing to the console, whose write we
-    // redirect. Destinations are mutable so the type allows undefined, but "default" is always
-    // there at boot: its absence is a broken invariant, not a case to handle.
+    // redirect. What puts undefined in the type is our own noUncheckedIndexedAccess over the
+    // SDK's index signature, not the SDK itself: `destinations` is a Proxy that throws for a name
+    // it does not hold, so absence never arrives here as undefined. The branch is the compiler's
+    // price, and its error says what reaching it would mean.
     const destination = Logger.destinations.default;
     if (destination === undefined) {
         throw new InternalError("SDK has no default log destination");
