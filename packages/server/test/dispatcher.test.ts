@@ -78,6 +78,22 @@ describe("JsonRpcDispatcher", () => {
         assert.deepEqual(response.error.data, { method: "test.nope" });
     });
 
+    test("answers MethodNotFound for a name the handler table only inherits", async () => {
+        // The table is an object literal, so Object.prototype's members answer to their own names
+        // through it: `constructor` would hand the client back its own params as a result, and the
+        // ones that are not callable as plain functions would come back as internal errors, each
+        // one logged as a bug.
+        const { logger, dispatch } = setup();
+
+        for (const method of ["toString", "constructor", "valueOf", "hasOwnProperty", "__proto__"]) {
+            const response = failure(await dispatch(request(method, {}, 7)));
+
+            assert.equal(response.error.code, JsonRpcErrorCode.MethodNotFound, method);
+            assert.deepEqual(response.error.data, { method });
+        }
+        assert.equal(logged(logger, "error", "handler threw an unexpected error"), false);
+    });
+
     test("hands a thrown error to the wire mapping, logging only what is not an AppError", async () => {
         // Which error becomes which code is wire.ts's business and is tested there; what matters
         // here is that a domain error passes quietly and a bug in a handler is recorded.
