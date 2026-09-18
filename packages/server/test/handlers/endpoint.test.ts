@@ -71,6 +71,7 @@ describe("endpointHandlers", () => {
         assert.deepEqual(call(handlers, "endpoint.list"), [STATE]);
         assert.deepEqual(call(handlers, "endpoint.get", { id: E1 }), STATE);
         assert.equal(await call(handlers, "endpoint.read", { id: E1, clusterId: 6, attributeId: 0 }), true);
+        assert.deepEqual(endpointGateway.reads, [{ id: E1, clusterId: 6, attributeId: 0 }]);
     });
 
     test("write and invoke carry their payload through to the gateway", async () => {

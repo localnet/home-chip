@@ -3,10 +3,14 @@ import { RoomNotFoundError } from "@home-chip/contract/room/errors.ts";
 import type { RoomRepository } from "@home-chip/contract/room/ports.ts";
 import type { RoomRecord } from "@home-chip/contract/room/types.ts";
 
-/**
- * In-memory RoomRepository for tests. Backs the room view without
- * pulling in @home-chip/database.
- */
+// The use-cases save, rename and delete rooms, and look one up before assigning it; listing them
+// is the view's. The rest fail loudly rather than answering, so a use-case reaching for one is a
+// test failure and not a silent pass.
+const unused = (name: string): never => {
+    throw new Error(`fake room repository: ${name} is not exercised by the server`);
+};
+
+/** In-memory RoomRepository, so the use-cases can be tested without @home-chip/database. */
 export class TestRoomRepository implements RoomRepository {
     readonly #records = new Map<RoomId, RoomRecord>();
 
@@ -19,7 +23,7 @@ export class TestRoomRepository implements RoomRepository {
     }
 
     findAll(): RoomRecord[] {
-        return [...this.#records.values()];
+        return unused("findAll");
     }
 
     save(record: RoomRecord): void {

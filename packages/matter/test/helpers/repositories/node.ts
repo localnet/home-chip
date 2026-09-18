@@ -1,40 +1,32 @@
-import type { NodeId } from "@home-chip/contract/common/ids.ts";
 import type { NodeRepository } from "@home-chip/contract/node/ports.ts";
 import type { NodeRecord } from "@home-chip/contract/node/types.ts";
 
-/**
- * In-memory NodeRepository for tests. Backs the node view without
- * pulling in @home-chip/database.
- */
+// The provider reads the repository only to hydrate, inside start(), and no test here starts it:
+// that needs the process-wide SDK environment. Every method fails loudly, so a test that comes to
+// reach one finds out rather than being answered by a fake nobody set up.
+const unused = (name: string): never => {
+    throw new Error(`fake node repository: ${name} is not exercised by these tests`);
+};
+
+/** A NodeRepository for the provider's constructor, which takes one without reading it. */
 export class TestNodeRepository implements NodeRepository {
-    readonly #records = new Map<NodeId, NodeRecord>();
-
-    seed(record: NodeRecord): void {
-        this.#records.set(record.id, record);
+    findById(): NodeRecord | null {
+        return unused("findById");
     }
 
-    findById(id: NodeId): NodeRecord | null {
-        return this.#records.get(id) ?? null;
-    }
-
-    findByMatterId(matterId: bigint): NodeRecord | null {
-        for (const record of this.#records.values()) {
-            if (record.matterId === matterId) {
-                return record;
-            }
-        }
-        return null;
+    findByMatterId(): NodeRecord | null {
+        return unused("findByMatterId");
     }
 
     findAll(): NodeRecord[] {
-        return [...this.#records.values()];
+        return unused("findAll");
     }
 
-    save(record: NodeRecord): void {
-        this.#records.set(record.id, record);
+    save(): void {
+        unused("save");
     }
 
-    delete(id: NodeId): void {
-        this.#records.delete(id);
+    delete(): void {
+        unused("delete");
     }
 }
