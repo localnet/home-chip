@@ -349,7 +349,9 @@ describe("SdkNodeGateway", () => {
             assert.equal([...identity.nodeIdentities()].length, 0);
         });
 
-        test("force bypasses the asleep path a normal decommission would hit", async () => {
+        test("keeps a node whose decommissioning failed, so a forced retry can still find it", async () => {
+            // The retry an asleep ICD leaves the operator with. Had the failure dropped the node,
+            // the forced call would meet NodeNotFoundError instead.
             const nodeId = createNodeId();
             const node = {
                 decommission() {

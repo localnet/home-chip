@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdtempSync } from "node:fs";
+import { existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { DatabaseSync } from "node:sqlite";
@@ -85,8 +85,13 @@ describe("database", () => {
                     return true;
                 },
             );
-            // The connection was closed on the way out, so the provider is unstarted rather than
-            // holding a handle nothing will ever close.
+            // SQLite deletes the -wal file when the last connection to a database closes, and the
+            // provider switched to WAL before migrating, so a file still there is the handle
+            // #migrate should have closed. Were WAL ever set after the migrations instead, no file
+            // would appear either way and this line would prove nothing.
+            assert.equal(existsSync(`${path}-wal`), false);
+            // Separate from the close: the fields are assigned only once the migrations succeed,
+            // which is what leaves the provider unstarted.
             assert.throws(() => provider.room, InternalError);
         });
     });

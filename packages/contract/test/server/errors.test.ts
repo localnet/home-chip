@@ -17,8 +17,9 @@ describe("server/errors", () => {
         });
 
         test("says the version is missing when the client declared none", () => {
-            // Absence reaches data as null rather than being dropped, so a client reading the 426
-            // body can tell "you sent the wrong version" from "you sent none".
+            // The message is where the two cases part, being what leaves the process: the server
+            // logs it when it refuses the upgrade, and the 426 it answers with carries no body, so
+            // data reaches no client.
             const error = new SchemaVersionMismatchError(null);
 
             assert.deepEqual(error.data, { expected: SCHEMA_VERSION, received: null });

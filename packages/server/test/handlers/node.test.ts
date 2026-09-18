@@ -19,6 +19,7 @@ import { TestTransactor } from "../helpers/transactor.ts";
 import { TestView } from "../helpers/view.ts";
 
 const N1 = createNodeId();
+const N2 = createNodeId();
 
 const INFO: NodeInfo = {
     id: N1,
@@ -85,14 +86,19 @@ describe("nodeHandlers", () => {
     });
 
     test("node.decommission forwards force, which defaults to false when the client omits it", async () => {
-        // The only handler that carries an optional field through, so the default it applies is
-        // worth pinning here rather than only in the schema.
+        // The only handler that carries an optional field through. The default comes from the
+        // schema, and what is pinned here is that it reaches the gateway.
         const { nodeGateway, nodeRepository, handlers } = setup();
         nodeRepository.seed({ id: N1, matterId: 1n });
+        nodeRepository.seed({ id: N2, matterId: 2n });
 
-        await call(handlers, "node.decommission", { id: N1, force: true });
+        await call(handlers, "node.decommission", { id: N1 });
+        await call(handlers, "node.decommission", { id: N2, force: true });
 
-        assert.deepEqual(nodeGateway.decommissioned, [{ id: N1, force: true }]);
+        assert.deepEqual(nodeGateway.decommissioned, [
+            { id: N1, force: false },
+            { id: N2, force: true },
+        ]);
     });
 
     test("every handler validates its params before reaching the collaborator", () => {

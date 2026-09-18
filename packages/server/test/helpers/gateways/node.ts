@@ -8,9 +8,12 @@ import type { CommissioningResult, NodeInfo } from "@home-chip/contract/node/typ
  * CommissioningResult; decommission records the ids it was called with and the force flag it
  * received, and can be made to throw (e.g. NodeNotFoundError, to exercise the fabric-absent
  * path); isReachable answers from a seeded set.
+ *
+ * `force` is recorded as it arrived, with no default of its own: the real gateway's default would
+ * otherwise be restated here, and a test of what a caller defaults to would pass on this one.
  */
 export class TestNodeGateway implements NodeGateway {
-    readonly decommissioned: { readonly id: NodeId; readonly force: boolean }[] = [];
+    readonly decommissioned: { readonly id: NodeId; readonly force: boolean | undefined }[] = [];
     readonly #reachable = new Set<NodeId>();
     #commissionResult: CommissioningResult = {
         node: { id: "00000000-0000-7000-8000-000000000000" as NodeId, matterId: 0n },
@@ -43,7 +46,7 @@ export class TestNodeGateway implements NodeGateway {
         return this.#commissionResult;
     }
 
-    async decommission(id: NodeId, force = false): Promise<void> {
+    async decommission(id: NodeId, force?: boolean): Promise<void> {
         this.decommissioned.push({ id, force });
         if (this.#decommissionError !== undefined) {
             throw this.#decommissionError;

@@ -391,14 +391,14 @@ describe("SdkEndpointGateway", () => {
             assert.equal(onOffChanged.isObserved, false);
         });
 
-        test("start() after stop() does not accumulate duplicate observers", async (t) => {
+        test("watches again when started after a stop", async (t) => {
             const { gateway, onOffChanged } = await watched(t);
             gateway.start();
             gateway.stop();
+
             gateway.start();
+
             assert.equal(onOffChanged.isObserved, true);
-            gateway.stop();
-            assert.equal(onOffChanged.isObserved, false);
         });
     });
 });

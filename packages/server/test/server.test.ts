@@ -228,35 +228,31 @@ describe("createServer", () => {
         assert.equal(ws.readyState, WebSocket.CLOSED);
     });
 
-    test("a second start() is a no-op: it neither rejects nor duplicates event forwarding", async (t) => {
+    test("a second start() is a no-op, leaving the running server as it was", async (t) => {
         const { bus, port, server } = await setup(t);
 
-        // Without a guard this rejects with ERR_SERVER_ALREADY_LISTEN, after having subscribed
-        // the bus a second time and stranded the first heartbeat interval.
+        // Without the guard it builds a second http.Server on the port the first already holds,
+        // and its listen rejects. Nothing is committed before the listen, so that rejection is
+        // the whole symptom: no second bus subscription or heartbeat can be left behind.
         await server.start();
 
         const ws = await connect(port, TOKEN);
         after(() => ws.close());
         await subscribe(ws);
 
-        const first = nextMessage(ws);
+        const received = nextMessage(ws);
         bus.emit("room:added", { room: { id: R1, name: "Kitchen" }, timestamp: Date.now() });
-        assert.equal((await first).method, "room:added");
-
-        // A duplicated subscription would deliver the same event twice; the next message must be
-        // the following event, not a repeat of the previous one.
-        const second = nextMessage(ws);
-        bus.emit("room:removed", { roomId: R1, timestamp: Date.now() });
-        assert.equal((await second).method, "room:removed");
+        assert.equal((await received).method, "room:added");
     });
 
     test("stop() is idempotent: stopping an already-stopped server does not reject", async (t) => {
         const { server } = await setup(t);
 
         await server.stop();
-        // Without a guard this rejects with ERR_SERVER_NOT_RUNNING, which the composition root
-        // would log as a component that failed to stop. (setup's t.after calls stop() a third
-        // time, so the test also covers the teardown path.)
+        // Without the guard the second stop() reaches for the WebSocketServer the first one
+        // released, and throws; the composition root would log it as a component that failed to
+        // stop. (setup's t.after calls stop() a third time, so the test also covers the teardown
+        // path.)
         await server.stop();
     });
 
@@ -294,8 +290,9 @@ describe("createServer", () => {
         await assert.rejects(() => server.start());
         await new Promise<void>((resolve) => occupied.close(() => resolve()));
 
-        // Without #unwind, `#heartbeat` would still be set from the failed attempt and this
-        // second start() would be a silent no-op: the server would never listen at all.
+        // The fields are assigned only once the listen succeeds. Assigned before it, they would
+        // outlive the failed attempt, the guard would take the provider for started, and this
+        // second start() would return without listening at all.
         await server.start();
         const ws = await connect(port, TOKEN);
         after(() => ws.close());

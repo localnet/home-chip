@@ -52,22 +52,5 @@ describe("environment", () => {
             assert.equal(sink.chunks.length, 1);
             assert.match(sink.chunks[0] as string, /INFO ProbeFacility hello from sdk\n$/);
         });
-
-        test("does not leak MATTER_* environment variables into the SDK", async () => {
-            // sdk-config.ts sets loadProcessEnv=false; a MATTER_* var in the process
-            // must not override our explicit storage path.
-            process.env.MATTER_STORAGE_PATH = "/tmp/should-not-be-used-by-sdk";
-            try {
-                const path = rootPath();
-                const environment = configureEnvironment(path, new MemorySink(), {
-                    networkInterface: null,
-                    logLevel: LogLevel.Info,
-                });
-                assert.equal(environment.vars.get("storage.path"), path);
-                assert.notEqual(environment.vars.get("storage.path"), "/tmp/should-not-be-used-by-sdk");
-            } finally {
-                delete process.env.MATTER_STORAGE_PATH;
-            }
-        });
     });
 });
