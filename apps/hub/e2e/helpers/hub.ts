@@ -34,12 +34,35 @@ export interface RunningHub {
      * races it, and only the shutdown flushes what is pending.
      */
     readonly awaitLog: (pattern: RegExp) => Promise<string>;
-    /** Stops the hub early. Calling it twice is harmless, and so is leaving it to the teardown. */
+    /**
+     * Stops the hub early, failing unless it exits with 0 within STOP_TIMEOUT_MS of the signal.
+     * Calling it twice is harmless, and so is leaving it to the teardown.
+     */
     readonly stop: () => Promise<void>;
 }
 
 /** Long enough for a slow runner's disk, short enough to fail rather than hang the suite. */
 const LOG_TIMEOUT_MS = 15_000;
+
+/**
+ * How long the hub has to exit once signalled. A clean stop takes milliseconds, idle or with a
+ * peer connected, so this is slack for a slow runner rather than an estimate: what it bounds is a
+ * shutdown that never ends, which would otherwise hold the suite until CI kills the job, with
+ * nothing said about which hub or why.
+ */
+const STOP_TIMEOUT_MS = 10_000;
+
+/** How much of hub.log a failed stop quotes: enough to show which component was still stopping. */
+const LOG_TAIL_LINES = 20;
+
+interface Exit {
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+}
+
+const describeExit = ({ code, signal }: Exit): string => (signal !== null ? `signal ${signal}` : `code ${code}`);
+
+const tail = (text: string, lines: number): string => text.split("\n").slice(-lines).join("\n");
 
 /** A fresh deployment root, so no test inherits another's database or fabric credentials. */
 export const freshRoot = (): string => mkdtempSync(join(tmpdir(), "home-chip-e2e-"));
@@ -90,16 +113,6 @@ export async function startHub(t: TestContext, options: { root?: string; port?: 
         output += chunk.toString();
     });
 
-    const exited = new Promise<void>((resolve) => hub.once("exit", () => resolve()));
-    const stop = async (): Promise<void> => {
-        if (hub.exitCode === null && hub.signalCode === null) {
-            // The signal a service manager sends, so the shutdown under test is the real one.
-            hub.kill("SIGTERM");
-        }
-        await exited;
-    };
-    t.after(stop);
-
     const logFile = join(environment.logPath, "hub.log");
     const log = (): string => {
         try {
@@ -109,6 +122,57 @@ export async function startHub(t: TestContext, options: { root?: string; port?: 
         }
     };
 
+    const exited = new Promise<Exit>((resolve) => hub.once("exit", (code, signal) => resolve({ code, signal })));
+    const hasExited = (): boolean => hub.exitCode !== null || hub.signalCode !== null;
+
+    // Set once awaitLog has reported an exit, so the teardown does not report the same one again.
+    let exitReported = false;
+
+    /**
+     * The shutdown is part of what the tests check, not only their cleanup: a service manager
+     * reads a non-zero code as a failure and, under a restart policy, brings back a hub the
+     * operator just stopped, and one that never exits gets killed at the end of its timeout.
+     */
+    const shutdown = async (): Promise<void> => {
+        const running = !hasExited();
+        if (running) {
+            // The signal a service manager sends, so the shutdown under test is the real one.
+            hub.kill("SIGTERM");
+        }
+
+        let timer: NodeJS.Timeout | undefined;
+        const deadline = new Promise<"timeout">((resolve) => {
+            timer = globalThis.setTimeout(() => resolve("timeout"), STOP_TIMEOUT_MS);
+        });
+        const outcome = await Promise.race([exited, deadline]);
+        globalThis.clearTimeout(timer);
+
+        if (outcome === "timeout") {
+            // Killed so the port and the mDNS socket are free for the tests that follow, which
+            // would otherwise fail on this hub's account.
+            hub.kill("SIGKILL");
+            await exited;
+            throw new Error(
+                `the hub did not exit within ${STOP_TIMEOUT_MS}ms of SIGTERM and was killed. The end of hub.log:\n${tail(log(), LOG_TAIL_LINES)}\nand the process said:\n${output}`,
+            );
+        }
+        if (!running) {
+            if (exitReported) {
+                return;
+            }
+            throw new Error(`the hub exited on its own with ${describeExit(outcome)}, unasked:\n${output}`);
+        }
+        if (outcome.code !== 0) {
+            throw new Error(`the hub stopped with ${describeExit(outcome)} rather than 0:\n${output}`);
+        }
+    };
+    let stopping: Promise<void> | undefined;
+    const stop = (): Promise<void> => {
+        stopping ??= shutdown();
+        return stopping;
+    };
+    t.after(stop);
+
     const awaitLog = async (pattern: RegExp): Promise<string> => {
         const deadline = Date.now() + LOG_TIMEOUT_MS;
         while (Date.now() < deadline) {
@@ -116,8 +180,13 @@ export async function startHub(t: TestContext, options: { root?: string; port?: 
             if (pattern.test(contents)) {
                 return contents;
             }
-            if (hub.exitCode !== null) {
-                throw new Error(`the hub exited with ${hub.exitCode} before ${pattern}:\n${output}`);
+            // Either field, since a hub killed by a signal leaves exitCode null: checking the code
+            // alone would wait out the timeout and then blame the log.
+            if (hasExited()) {
+                exitReported = true;
+                throw new Error(
+                    `the hub exited with ${describeExit({ code: hub.exitCode, signal: hub.signalCode })} before ${pattern}:\n${output}`,
+                );
             }
             await setTimeout(25);
         }

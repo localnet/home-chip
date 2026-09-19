@@ -37,6 +37,9 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    # About ten times what the job takes, as for hub below: the suites run simulated Matter nodes,
+    # and a process that never exits would otherwise hold the runner for GitHub's six-hour default.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,6 +52,11 @@ jobs:
 
   hub:
     runs-on: ubuntu-latest
+    # About ten times what the job takes. A process that never exits — the hang
+    # matter-js/matter.js#4412 causes, or one nothing here has bounded yet — would otherwise hold
+    # the runner for GitHub's six-hour default. check and type get none: they run biome and tsc,
+    # which start nothing that can be left running.
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
