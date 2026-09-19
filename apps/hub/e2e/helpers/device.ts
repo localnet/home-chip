@@ -1,3 +1,6 @@
+// Import the SDK isolation side effect before any "@matter/main" import (see sdk-config.ts).
+import "./sdk-config.ts";
+
 import { createWriteStream, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -94,7 +97,8 @@ export interface SimulatedDevice {
  * Not confined to an interface. Matter carries mDNS over IPv6 multicast and Linux's loopback does
  * not carry multicast, so pinning both sides to it works on macOS and hangs on a Linux runner at
  * the first test needing discovery — the tests that only speak TCP pass, which is what makes that
- * failure confusing. A run therefore advertises its devices on whatever network it is on.
+ * failure confusing. A run therefore advertises its devices on whatever network it is on, and
+ * sdk-config.ts keeps the environment of whoever runs it from pinning them anyway.
  */
 export async function startDevice(t: TestContext): Promise<SimulatedDevice> {
     configureSdk();
