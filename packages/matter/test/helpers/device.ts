@@ -58,28 +58,40 @@ export class MatterTestNetwork {
         return controller;
     }
 
-    /** Creates and starts a simulated OnOff light, returning it and its pairing code. */
-    async createOnOffLight(): Promise<{ device: ServerNode; pairingCode: string }> {
+    /**
+     * Creates and starts a simulated OnOff light, returning it, its pairing code and the number
+     * the SDK gave its light endpoint. `names` overrides the NodeLabel (empty by default) and the
+     * ProductName the device reports.
+     */
+    async createOnOffLight(
+        names: { readonly nodeLabel?: string; readonly productName?: string } = {},
+    ): Promise<{ device: ServerNode; pairingCode: string; endpointNumber: number }> {
         const index = this.#hostIndex + 1;
         const device = await ServerNode.create({
             environment: this.#environment(),
             id: `device-${index}`,
             // Distinct per device so concurrent devices do not clash in discovery.
             commissioning: { passcode: 20202021 + index, discriminator: 3840 + index },
+            // Every number distinct, so a reading that crossed two of them would show.
             basicInformation: {
                 vendorName: "HomeChip Test",
                 vendorId: VendorId(0xfff1),
-                productName: "Test OnOff Light",
+                productName: names.productName ?? "Test OnOff Light",
+                nodeLabel: names.nodeLabel ?? "",
                 productId: 0x8000,
-                hardwareVersion: 1,
-                softwareVersion: 1,
-                softwareVersionString: "1.0.0",
+                hardwareVersion: 2,
+                softwareVersion: 3,
+                softwareVersionString: "3.0.0",
             },
         });
-        await device.add(OnOffLightDevice);
+        const light = await device.add(OnOffLightDevice);
         await device.start();
         this.#nodes.push(device);
-        return { device, pairingCode: device.state.commissioning.pairingCodes.manualPairingCode };
+        return {
+            device,
+            pairingCode: device.state.commissioning.pairingCodes.manualPairingCode,
+            endpointNumber: light.number,
+        };
     }
 
     /** Closes every node created through this network, releasing their timers. */

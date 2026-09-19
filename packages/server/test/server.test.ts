@@ -77,10 +77,25 @@ const setup = async (t: TestContext, options: { port?: number; start?: boolean }
     return { bus, nodeView, port, server };
 };
 
-const connect = (port: number, token: string, version = "1"): Promise<WebSocket> =>
+const connect = (port: number, protocols: string | string[], version = "1"): Promise<WebSocket> =>
+    new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/?v=${version}`, protocols);
+        ws.on("open", () => resolve(ws));
+        ws.on("error", reject);
+    });
+
+/** The HTTP status a refused upgrade answers with, read off the response itself. */
+const refusal = (port: number, token: string, version = "1"): Promise<number | undefined> =>
     new Promise((resolve, reject) => {
         const ws = new WebSocket(`ws://127.0.0.1:${port}/?v=${version}`, [token]);
-        ws.on("open", () => resolve(ws));
+        ws.on("unexpected-response", (request, response) => {
+            resolve(response.statusCode);
+            request.destroy();
+        });
+        ws.on("open", () => {
+            ws.close();
+            reject(new Error("the upgrade was accepted"));
+        });
         ws.on("error", reject);
     });
 
@@ -117,12 +132,22 @@ describe("createServer", () => {
 
     test("rejects a mismatched schema version with HTTP 426", async (t) => {
         const { port } = await setup(t);
-        await assert.rejects(connect(port, TOKEN, "999"), /426/);
+        assert.equal(await refusal(port, TOKEN, "999"), 426);
     });
 
     test("rejects an invalid auth token with HTTP 401", async (t) => {
         const { port } = await setup(t);
-        await assert.rejects(connect(port, "wrong-token"), /401/);
+        assert.equal(await refusal(port, "wrong-token"), 401);
+    });
+
+    test("finds the token among several offered subprotocols, and selects it", async (t) => {
+        // Sec-WebSocket-Protocol is a list, and the server reads it as one: the token counts
+        // wherever it sits, and it is what comes back selected, whatever else was offered.
+        const { port } = await setup(t);
+        const ws = await connect(port, ["home-chip", TOKEN]);
+        after(() => ws.close());
+
+        assert.equal(ws.protocol, TOKEN);
     });
 
     test("subscribe returns a snapshot of the current state", async (t) => {
@@ -228,35 +253,31 @@ describe("createServer", () => {
         assert.equal(ws.readyState, WebSocket.CLOSED);
     });
 
-    test("a second start() is a no-op: it neither rejects nor duplicates event forwarding", async (t) => {
+    test("a second start() is a no-op, leaving the running server as it was", async (t) => {
         const { bus, port, server } = await setup(t);
 
-        // Without a guard this rejects with ERR_SERVER_ALREADY_LISTEN, after having subscribed
-        // the bus a second time and stranded the first heartbeat interval.
+        // Without the guard it builds a second http.Server on the port the first already holds,
+        // and its listen rejects. Nothing is committed before the listen, so that rejection is
+        // the whole symptom: no second bus subscription or heartbeat can be left behind.
         await server.start();
 
         const ws = await connect(port, TOKEN);
         after(() => ws.close());
         await subscribe(ws);
 
-        const first = nextMessage(ws);
+        const received = nextMessage(ws);
         bus.emit("room:added", { room: { id: R1, name: "Kitchen" }, timestamp: Date.now() });
-        assert.equal((await first).method, "room:added");
-
-        // A duplicated subscription would deliver the same event twice; the next message must be
-        // the following event, not a repeat of the previous one.
-        const second = nextMessage(ws);
-        bus.emit("room:removed", { roomId: R1, timestamp: Date.now() });
-        assert.equal((await second).method, "room:removed");
+        assert.equal((await received).method, "room:added");
     });
 
     test("stop() is idempotent: stopping an already-stopped server does not reject", async (t) => {
         const { server } = await setup(t);
 
         await server.stop();
-        // Without a guard this rejects with ERR_SERVER_NOT_RUNNING, which the composition root
-        // would log as a component that failed to stop. (setup's t.after calls stop() a third
-        // time, so the test also covers the teardown path.)
+        // Without the guard the second stop() reaches for the WebSocketServer the first one
+        // released, and throws; the composition root would log it as a component that failed to
+        // stop. (setup's t.after calls stop() a third time, so the test also covers the teardown
+        // path.)
         await server.stop();
     });
 
@@ -294,8 +315,9 @@ describe("createServer", () => {
         await assert.rejects(() => server.start());
         await new Promise<void>((resolve) => occupied.close(() => resolve()));
 
-        // Without #unwind, `#heartbeat` would still be set from the failed attempt and this
-        // second start() would be a silent no-op: the server would never listen at all.
+        // The fields are assigned only once the listen succeeds. Assigned before it, they would
+        // outlive the failed attempt, the guard would take the provider for started, and this
+        // second start() would return without listening at all.
         await server.start();
         const ws = await connect(port, TOKEN);
         after(() => ws.close());

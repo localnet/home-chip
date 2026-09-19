@@ -63,9 +63,9 @@ describe("SqliteNodeRepository", () => {
     });
 
     test("refuses a second node carrying the same matter id", () => {
-        // The UNIQUE index on matter_id is what tells the commissioning layer it has met this
-        // device before, save() being a plain INSERT rather than an upsert. The primary key
-        // never collides: a NodeId is minted fresh per commissioning.
+        // The UNIQUE index keeps one record per Matter node: save() is a plain INSERT rather than
+        // an upsert, and the primary key never collides, a NodeId being minted fresh per
+        // commissioning.
         repository.save(node("n1", 100n));
 
         assert.throws(() => repository.save(node("n2", 100n)));

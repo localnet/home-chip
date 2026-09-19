@@ -2,7 +2,12 @@ import { strict as assert } from "node:assert";
 import { describe, test } from "node:test";
 
 import type { NodeId } from "@home-chip/contract/common/ids.ts";
-import { NodeNotFoundError } from "@home-chip/contract/node/errors.ts";
+import {
+    DecommissioningFailedError,
+    NodeAsleepError,
+    NodeNotFoundError,
+    NodeOfflineError,
+} from "@home-chip/contract/node/errors.ts";
 
 import { DecommissionUseCase } from "../../src/use-cases/decommission.ts";
 import { TestEventBus } from "../helpers/bus.ts";
@@ -86,6 +91,52 @@ describe("DecommissionUseCase", () => {
                 (call) =>
                     call.level === "notice" &&
                     call.values[0] === "node already absent from fabric, removing from database only",
+            ),
+            true,
+        );
+    });
+
+    test("keeps a node the fabric removal failed for any other reason, announcing nothing", async () => {
+        // Only an absent node counts as already gone. An asleep or offline one still holds our
+        // fabric, so deleting it here would leave an orphan: controllable by nobody, visible to
+        // nobody, and reported removed.
+        const failures = [
+            new NodeAsleepError(nid("n1"), new Error("asleep")),
+            new NodeOfflineError(nid("n1"), new Error("no response")),
+            new DecommissioningFailedError(nid("n1"), new Error("rejected")),
+        ];
+
+        for (const failure of failures) {
+            const { nodeRepository, nodeGateway, bus, useCase } = setup();
+            nodeRepository.seed({ id: nid("n1"), matterId: 10n });
+            nodeGateway.failDecommissionWith(failure);
+
+            await assert.rejects(() => useCase.execute(nid("n1")), failure);
+
+            assert.deepEqual(nodeRepository.findById(nid("n1")), { id: nid("n1"), matterId: 10n }, failure.name);
+            assert.deepEqual(removed(bus), [], failure.name);
+        }
+    });
+
+    test("surfaces a database delete that fails after the fabric removal, announcing nothing", async () => {
+        // The fabric removal is final, so there is nothing to compensate with: what remains is
+        // the error, and a log line recording that the two sides now disagree.
+        const { logger, nodeRepository, nodeGateway, bus, useCase } = setup();
+        nodeRepository.seed({ id: nid("n1"), matterId: 10n });
+        const failure = new Error("disk full");
+        nodeRepository.failDeleteWith(failure);
+
+        await assert.rejects(() => useCase.execute(nid("n1")), failure);
+
+        assert.deepEqual(
+            nodeGateway.decommissioned.map((entry) => entry.id),
+            ["n1"],
+        );
+        assert.deepEqual(removed(bus), []);
+        assert.equal(
+            logger.calls.some(
+                (call) =>
+                    call.level === "error" && call.values[0] === "node removed from fabric but database delete failed",
             ),
             true,
         );

@@ -1,61 +1,44 @@
-import type { EndpointId, NodeId, RoomId } from "@home-chip/contract/common/ids.ts";
-import { EndpointNotFoundError } from "@home-chip/contract/endpoint/errors.ts";
 import type { EndpointRepository } from "@home-chip/contract/endpoint/ports.ts";
 import type { EndpointRecord } from "@home-chip/contract/endpoint/types.ts";
 
-/**
- * In-memory EndpointRepository for tests. Backs the endpoint view without
- * pulling in @home-chip/database.
- */
+// The provider reads the repository only to hydrate, inside start(), and no test here starts it:
+// that needs the process-wide SDK environment. Every method fails loudly, so a test that comes to
+// reach one finds out rather than being answered by a fake nobody set up.
+const unused = (name: string): never => {
+    throw new Error(`fake endpoint repository: ${name} is not exercised by these tests`);
+};
+
+/** An EndpointRepository for the provider's constructor, which takes one without reading it. */
 export class TestEndpointRepository implements EndpointRepository {
-    readonly #records = new Map<EndpointId, EndpointRecord>();
-
-    seed(record: EndpointRecord): void {
-        this.#records.set(record.id, record);
+    findById(): EndpointRecord | null {
+        return unused("findById");
     }
 
-    findById(id: EndpointId): EndpointRecord | null {
-        return this.#records.get(id) ?? null;
-    }
-
-    findByMatterNumber(nodeId: NodeId, matterNumber: number): EndpointRecord | null {
-        for (const record of this.#records.values()) {
-            if (record.nodeId === nodeId && record.matterNumber === matterNumber) {
-                return record;
-            }
-        }
-        return null;
+    findByMatterNumber(): EndpointRecord | null {
+        return unused("findByMatterNumber");
     }
 
     findAll(): EndpointRecord[] {
-        return [...this.#records.values()];
+        return unused("findAll");
     }
 
-    findByNode(nodeId: NodeId): EndpointRecord[] {
-        return [...this.#records.values()].filter((record) => record.nodeId === nodeId);
+    findByNode(): EndpointRecord[] {
+        return unused("findByNode");
     }
 
-    save(record: EndpointRecord): void {
-        this.#records.set(record.id, record);
+    save(): void {
+        unused("save");
     }
 
-    setName(id: EndpointId, name: string): void {
-        const record = this.#records.get(id);
-        if (record === undefined) {
-            throw new EndpointNotFoundError(id);
-        }
-        this.#records.set(id, { ...record, name });
+    setName(): void {
+        unused("setName");
     }
 
-    setRoom(id: EndpointId, roomId: RoomId | null): void {
-        const record = this.#records.get(id);
-        if (record === undefined) {
-            throw new EndpointNotFoundError(id);
-        }
-        this.#records.set(id, { ...record, roomId });
+    setRoom(): void {
+        unused("setRoom");
     }
 
-    delete(id: EndpointId): void {
-        this.#records.delete(id);
+    delete(): void {
+        unused("delete");
     }
 }

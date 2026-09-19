@@ -43,7 +43,8 @@ describe("EndpointUseCase", () => {
         });
     });
 
-    test("assignRoom sets a room and clears it again", () => {
+    test("assignRoom sets a room and clears it again", (t) => {
+        t.mock.timers.enable({ apis: ["Date"], now: 1_000 });
         const { endpointRepository, roomRepository, bus, useCase } = setup();
         roomRepository.seed({ id: R1, name: "Kitchen" });
 
@@ -53,7 +54,11 @@ describe("EndpointUseCase", () => {
         useCase.assignRoom(E1, null);
         assert.equal(endpointRepository.findById(E1)?.roomId, null);
 
-        assert.deepEqual(emittedNames(bus), ["endpoint:room-changed", "endpoint:room-changed"]);
+        // The null is the clearing itself, which a client applies to its copy as it would a room.
+        assert.deepEqual(bus.emitted, [
+            { name: "endpoint:room-changed", payload: { endpointId: E1, roomId: R1, timestamp: 1_000 } },
+            { name: "endpoint:room-changed", payload: { endpointId: E1, roomId: null, timestamp: 1_000 } },
+        ]);
     });
 
     test("assignRoom reports a room that does not exist, rather than letting the write fail", () => {
@@ -86,6 +91,7 @@ describe("EndpointUseCase", () => {
         await useCase.invoke(E1, 8, 0, { level: 200 });
         await useCase.invoke(E1, 6, 1);
 
+        assert.deepEqual(gateway.reads, [{ id: E1, clusterId: 6, attributeId: 0 }]);
         assert.deepEqual(gateway.written, [{ id: E1, clusterId: 0x0201, attributeId: 0x12, value: 2100 }]);
         assert.deepEqual(gateway.invoked, [
             { id: E1, clusterId: 8, commandId: 0, args: { level: 200 } },

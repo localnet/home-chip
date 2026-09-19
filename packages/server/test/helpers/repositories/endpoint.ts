@@ -1,12 +1,16 @@
-import type { EndpointId, NodeId, RoomId } from "@home-chip/contract/common/ids.ts";
+import type { EndpointId, RoomId } from "@home-chip/contract/common/ids.ts";
 import { EndpointNotFoundError } from "@home-chip/contract/endpoint/errors.ts";
 import type { EndpointRepository } from "@home-chip/contract/endpoint/ports.ts";
 import type { EndpointRecord } from "@home-chip/contract/endpoint/types.ts";
 
-/**
- * In-memory EndpointRepository for tests. Backs the endpoint view without
- * pulling in @home-chip/database.
- */
+// The use-cases save endpoints at commissioning and edit their name and room; an endpoint leaves
+// with its node, through the database cascade, rather than on its own. The rest fail loudly
+// rather than answering, so a use-case reaching for one is a test failure and not a silent pass.
+const unused = (name: string): never => {
+    throw new Error(`fake endpoint repository: ${name} is not exercised by the server`);
+};
+
+/** In-memory EndpointRepository, so the use-cases can be tested without @home-chip/database. */
 export class TestEndpointRepository implements EndpointRepository {
     readonly #records = new Map<EndpointId, EndpointRecord>();
 
@@ -18,21 +22,16 @@ export class TestEndpointRepository implements EndpointRepository {
         return this.#records.get(id) ?? null;
     }
 
-    findByMatterNumber(nodeId: NodeId, matterNumber: number): EndpointRecord | null {
-        for (const record of this.#records.values()) {
-            if (record.nodeId === nodeId && record.matterNumber === matterNumber) {
-                return record;
-            }
-        }
-        return null;
+    findByMatterNumber(): EndpointRecord | null {
+        return unused("findByMatterNumber");
     }
 
     findAll(): EndpointRecord[] {
-        return [...this.#records.values()];
+        return unused("findAll");
     }
 
-    findByNode(nodeId: NodeId): EndpointRecord[] {
-        return [...this.#records.values()].filter((record) => record.nodeId === nodeId);
+    findByNode(): EndpointRecord[] {
+        return unused("findByNode");
     }
 
     save(record: EndpointRecord): void {
@@ -55,9 +54,7 @@ export class TestEndpointRepository implements EndpointRepository {
         this.#records.set(id, { ...record, roomId });
     }
 
-    delete(id: EndpointId): void {
-        if (!this.#records.delete(id)) {
-            throw new EndpointNotFoundError(id);
-        }
+    delete(): void {
+        unused("delete");
     }
 }

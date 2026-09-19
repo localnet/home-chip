@@ -38,10 +38,26 @@ describe("SqliteTransactor", () => {
                         connection.prepare("INSERT INTO t (value) VALUES (?)").run("b");
                         throw original;
                     }),
-                // The identity matters: a failing ROLLBACK must not replace what the caller needs.
                 (error: unknown) => error === original,
             );
             assert.equal(rowCount(connection), 0);
+        });
+
+        test("keeps the original error when the rollback itself fails", () => {
+            // The transaction is ended from inside, so the ROLLBACK that follows the throw finds
+            // nothing to undo and fails. Without that it succeeds, as in the test above, and the
+            // failure this guards never arises.
+            const connection = memoryConnection();
+            const original = new Error("boom");
+
+            assert.throws(
+                () =>
+                    new SqliteTransactor(connection).run(() => {
+                        connection.exec("ROLLBACK");
+                        throw original;
+                    }),
+                (error: unknown) => error === original,
+            );
         });
 
         test("lets SQLite refuse a nested transaction", () => {

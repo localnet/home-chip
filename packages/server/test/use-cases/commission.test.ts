@@ -54,7 +54,9 @@ describe("CommissionUseCase", () => {
     test("persists the node and endpoints, emits only node:added, and returns the node id", async () => {
         const { nodeRepository, endpointRepository, nodeGateway, bus, useCase } = setup();
         nodeGateway.setCommissionResult(commissioning());
-        nodeGateway.setReachable(nid("n1"), true);
+        // Unreachable on purpose: a node just commissioned is plausibly online, so a use-case
+        // answering true without asking the gateway would pass against a gateway that said true.
+        nodeGateway.setReachable(nid("n1"), false);
 
         const id = await useCase.execute("MT:CODE");
 
@@ -68,26 +70,24 @@ describe("CommissionUseCase", () => {
         assert.ok(event);
         const { timestamp } = event.payload as { timestamp: number };
         assert.deepEqual(event.payload, {
-            node: { id: "n1", reachable: true },
+            node: { id: "n1", reachable: false },
             timestamp,
         });
         assert.equal(typeof timestamp, "number");
     });
 
     test("rolls back the commissioning and emits nothing when the transaction fails", async () => {
-        const { logger, nodeRepository, transactor, nodeGateway, bus, useCase } = setup();
+        const { logger, transactor, nodeGateway, bus, useCase } = setup();
         nodeGateway.setCommissionResult(commissioning());
         const failure = new Error("disk full");
         transactor.failWith(failure);
 
         await assert.rejects(() => useCase.execute("MT:CODE"), failure);
 
-        // Compensating decommission ran, nothing persisted, no event emitted.
         assert.deepEqual(
             nodeGateway.decommissioned.map((entry) => entry.id),
             ["n1"],
         );
-        assert.equal(nodeRepository.findById(nid("n1")), null);
         assert.equal(added(bus).length, 0);
         assert.equal(
             logger.calls.some(

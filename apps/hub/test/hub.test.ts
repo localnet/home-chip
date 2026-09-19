@@ -1,5 +1,5 @@
 import { strict as assert } from "node:assert";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, test } from "node:test";
@@ -11,12 +11,17 @@ import { createHubProvider } from "../src/hub.ts";
 
 /**
  * These cover the paths of the hub's lifecycle that need no Matter controller: the ones ending
- * before `#boot()` reaches it. Starting successfully requires mDNS over multicast, which CI
- * runners do not provide, so the happy path stays a manual smoke test against real hardware —
- * the same split matterjs-server settled on, running its full-boot suite in a separate Docker
- * job rather than alongside the unit tests.
+ * before `#boot()` reaches it, the controller needing a network a unit test cannot count on. A
+ * boot that succeeds belongs to `npm run e2e`, which runs the bundle as a deployment would.
+ *
+ * Two decisions of the shutdown are covered by neither: stopping in reverse, the streams last,
+ * and carrying on past a stop() that throws. Both need a component this file cannot substitute,
+ * the composition root building every one itself.
  */
 const root = (): string => mkdtempSync(join(tmpdir(), "home-chip-hub-"));
+
+/** The descriptors this process holds open, which /dev/fd lists on Linux and macOS alike. */
+const openDescriptors = (): number => readdirSync("/dev/fd").length;
 
 const environment = (directory: string): Environment => ({
     configPath: directory,
@@ -74,10 +79,15 @@ describe("createHubProvider", () => {
         // that exercises the unwind, where the mkdir failure above starts nothing at all.
         const environment = unopenableDatabase();
         const hub = createHubProvider(environment, validateConfig({}));
+        const descriptors = openDescriptors();
 
         await assert.rejects(() => hub.start());
 
         assert.match(readFileSync(join(environment.logPath, "hub.log"), "utf8"), /ERROR Hub failed to start/);
+        // Each stream holds its file open until its stop() ends it, so the count coming back to
+        // where it started is the unwind having reached them: without it, two log files stay open
+        // for the life of the process.
+        assert.equal(openDescriptors(), descriptors);
         // The unwind is what emptied #started: left populated, the guard would latch and this
         // second attempt would resolve, reporting success for a hub that never booted.
         await assert.rejects(() => hub.start());
