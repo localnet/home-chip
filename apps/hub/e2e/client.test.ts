@@ -4,7 +4,7 @@ import { describe, test } from "node:test";
 import { JsonRpcErrorCode } from "@home-chip/contract/server/types.ts";
 import { type Snapshot, SUBSCRIBE_METHOD } from "@home-chip/contract/snapshot.ts";
 
-import { connect, opened, refusedUpgrade, request } from "./helpers/client.ts";
+import { call, connect, opened, refusedUpgrade, request } from "./helpers/client.ts";
 import { startHub } from "./helpers/hub.ts";
 
 /**
@@ -40,12 +40,11 @@ describe("client session", () => {
         t.after(() => ws.close());
         await opened(ws);
 
-        const response = await request(ws, SUBSCRIBE_METHOD);
+        const snapshot = (await call(ws, SUBSCRIBE_METHOD)) as Snapshot;
 
-        assert.ok("result" in response);
         // Empty on a fresh hub, but present: the three views were composed and reachable, which
         // is the registry, the database and the matter gateways all answering.
-        assert.deepEqual(response.result as Snapshot, { nodes: [], endpoints: [], rooms: [] });
+        assert.deepEqual(snapshot, { nodes: [], endpoints: [], rooms: [] });
     });
 
     test("routes a request through the dispatcher and back", async (t) => {
@@ -54,14 +53,12 @@ describe("client session", () => {
         t.after(() => ws.close());
         await opened(ws);
 
-        const created = await request(ws, "room.add", { name: "Kitchen" }, "add");
-        const listed = await request(ws, "room.list", {}, "list");
+        const created = await call(ws, "room.add", { name: "Kitchen" }, "add");
+        const listed = await call(ws, "room.list", {}, "list");
 
-        assert.ok("result" in created);
-        assert.ok("result" in listed);
         // The write reached SQLite and the read came back through the room view, so the whole
         // path — transport, dispatcher, handler, use-case, repository — is connected.
-        assert.deepEqual(listed.result, [{ id: created.result, name: "Kitchen" }]);
+        assert.deepEqual(listed, [{ id: created, name: "Kitchen" }]);
     });
 
     test("answers an unknown method with MethodNotFound rather than dropping the socket", async (t) => {
@@ -72,7 +69,7 @@ describe("client session", () => {
 
         const response = await request(ws, "room.nope", {});
 
-        assert.ok("error" in response);
+        assert.ok("error" in response, `expected an error, the hub answered ${JSON.stringify(response)}`);
         assert.equal(response.error.code, JsonRpcErrorCode.MethodNotFound);
     });
 });

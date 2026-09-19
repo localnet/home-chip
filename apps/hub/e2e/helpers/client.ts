@@ -100,6 +100,22 @@ export function request(ws: WebSocket, method: string, params?: unknown, id = "1
     });
 }
 
+/**
+ * Sends a request that is expected to succeed and resolves with its result. An error response
+ * throws with the error as the hub sent it — code, message and `data`, which is where the domain
+ * code and the offending ids travel — because a test that only asserts "result" is present fails
+ * with "the expression evaluated to a falsy value" and nothing about what the hub answered.
+ *
+ * `request` stays for the tests that expect the error and assert on it.
+ */
+export async function call(ws: WebSocket, method: string, params?: unknown, id = "1"): Promise<unknown> {
+    const response = await request(ws, method, params, id);
+    if ("error" in response) {
+        throw new Error(`${method} (id ${id}) answered with an error: ${JSON.stringify(response.error)}`);
+    }
+    return response.result;
+}
+
 /** A server-pushed notification: a message carrying a method and no id. */
 export interface Notification {
     readonly method: string;

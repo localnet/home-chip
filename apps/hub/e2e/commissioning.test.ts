@@ -5,7 +5,7 @@ import type { EndpointState } from "@home-chip/contract/endpoint/types.ts";
 import type { NodeState } from "@home-chip/contract/node/types.ts";
 import { SUBSCRIBE_METHOD } from "@home-chip/contract/snapshot.ts";
 
-import { collectNotifications, connect, opened, request } from "./helpers/client.ts";
+import { call, collectNotifications, connect, opened } from "./helpers/client.ts";
 import { startBridge, startDevice } from "./helpers/device.ts";
 import { startHub } from "./helpers/hub.ts";
 
@@ -23,6 +23,9 @@ const AGGREGATOR = 0x000e;
 const ON_OFF_CLUSTER = 0x0006;
 const ON_OFF_ATTRIBUTE = 0x0000;
 
+/** The OnOff cluster's On command. */
+const ON_COMMAND = 0x01;
+
 describe("commissioning", () => {
     test("commissions a device from its manual pairing code and announces it", async (t) => {
         const hub = await startHub(t);
@@ -33,11 +36,10 @@ describe("commissioning", () => {
         // Collected from before the subscribe, so an event arriving while it is answered is not
         // missed, and matched by name rather than by being first.
         const notification = collectNotifications(ws);
-        await request(ws, SUBSCRIBE_METHOD, undefined, "sub");
+        await call(ws, SUBSCRIBE_METHOD, undefined, "sub");
 
-        const response = await request(ws, "node.commission", { setupCode: device.manualPairingCode }, "commission");
+        await call(ws, "node.commission", { setupCode: device.manualPairingCode }, "commission");
 
-        assert.ok("result" in response);
         // Discovery, PASE and the fabric join all happened: the hub found the device by the
         // discriminator in that code, which is what the controller's mDNS scanner is for.
         await notification("node:added");
@@ -53,9 +55,7 @@ describe("commissioning", () => {
         t.after(() => ws.close());
         await opened(ws);
 
-        const response = await request(ws, "node.commission", { setupCode: device.qrPairingCode });
-
-        assert.ok("result" in response);
+        await call(ws, "node.commission", { setupCode: device.qrPairingCode });
     });
 
     test("records the device's endpoints, the root among none of them", async (t) => {
@@ -64,19 +64,19 @@ describe("commissioning", () => {
         const ws = connect(hub.url);
         t.after(() => ws.close());
         await opened(ws);
-        await request(ws, "node.commission", { setupCode: device.manualPairingCode }, "commission");
+        await call(ws, "node.commission", { setupCode: device.manualPairingCode }, "commission");
 
-        const nodes = await request(ws, "node.list", {}, "nodes");
-        const endpoints = await request(ws, "endpoint.list", {}, "endpoints");
+        const nodes = (await call(ws, "node.list", {}, "nodes")) as NodeState[];
+        const endpoints = (await call(ws, "endpoint.list", {}, "endpoints")) as EndpointState[];
 
-        assert.ok("result" in nodes);
-        assert.ok("result" in endpoints);
-        assert.equal((nodes.result as NodeState[]).length, 1);
+        assert.equal(nodes.length, 1);
         // One endpoint, not two: the root carries only administration clusters and is skipped, so
-        // a client is never offered something it cannot control.
-        const listed = endpoints.result as EndpointState[];
-        assert.equal(listed.length, 1);
-        assert.equal(listed[0]?.deviceType, ON_OFF_LIGHT);
+        // a client is never offered something it cannot control. Compared as the list of device
+        // types, so a wrong count shows which endpoints did come back.
+        assert.deepEqual(
+            endpoints.map((endpoint) => endpoint.deviceType),
+            [ON_OFF_LIGHT],
+        );
     });
 
     test("records every endpoint a bridge carries, nested ones included", async (t) => {
@@ -90,16 +90,16 @@ describe("commissioning", () => {
         const ws = connect(hub.url);
         t.after(() => ws.close());
         await opened(ws);
-        await request(ws, "node.commission", { setupCode: bridge.manualPairingCode }, "commission");
+        await call(ws, "node.commission", { setupCode: bridge.manualPairingCode }, "commission");
 
-        const endpoints = await request(ws, "endpoint.list", {}, "endpoints");
+        const endpoints = (await call(ws, "endpoint.list", {}, "endpoints")) as EndpointState[];
 
-        assert.ok("result" in endpoints);
-        const listed = endpoints.result as EndpointState[];
-        assert.equal(listed.length, 3);
-        // Two of them are the bridged lights; the third is the aggregator itself.
-        assert.equal(listed.filter((endpoint) => endpoint.deviceType === ON_OFF_LIGHT).length, 2);
-        assert.equal(listed.filter((endpoint) => endpoint.deviceType === AGGREGATOR).length, 1);
+        // Two of them are the bridged lights; the third is the aggregator itself. Sorted because
+        // the list's order is the database's, which nothing here promises.
+        assert.deepEqual(
+            endpoints.map((endpoint) => endpoint.deviceType).sort((a, b) => a - b),
+            [AGGREGATOR, ON_OFF_LIGHT, ON_OFF_LIGHT],
+        );
     });
 
     test("a change made at the device reaches a subscribed client", async (t) => {
@@ -114,8 +114,8 @@ describe("commissioning", () => {
         t.after(() => ws.close());
         await opened(ws);
         const notification = collectNotifications(ws);
-        await request(ws, SUBSCRIBE_METHOD, undefined, "sub");
-        await request(ws, "node.commission", { setupCode: device.manualPairingCode }, "commission");
+        await call(ws, SUBSCRIBE_METHOD, undefined, "sub");
+        await call(ws, "node.commission", { setupCode: device.manualPairingCode }, "commission");
 
         await device.setOn(true);
 
@@ -135,13 +135,18 @@ describe("commissioning", () => {
         const ws = connect(hub.url);
         t.after(() => ws.close());
         await opened(ws);
-        await request(ws, "node.commission", { setupCode: device.manualPairingCode }, "commission");
-        const endpoints = await request(ws, "endpoint.list", {}, "endpoints");
-        assert.ok("result" in endpoints);
-        const endpointId = (endpoints.result as EndpointState[])[0]?.id;
+        await call(ws, "node.commission", { setupCode: device.manualPairingCode }, "commission");
+        const endpoints = (await call(ws, "endpoint.list", {}, "endpoints")) as EndpointState[];
+        const endpointId = endpoints[0]?.id;
+        assert.ok(
+            endpointId !== undefined,
+            `endpoint.list returned no endpoint to invoke: ${JSON.stringify(endpoints)}`,
+        );
 
         assert.equal(device.isOn(), false);
-        await request(ws, "endpoint.invoke", { id: endpointId, clusterId: 6, commandId: 1 }, "on");
+        // Called rather than requested: a refused invoke would otherwise surface only as the light
+        // still being off, with the hub's answer lost.
+        await call(ws, "endpoint.invoke", { id: endpointId, clusterId: ON_OFF_CLUSTER, commandId: ON_COMMAND }, "on");
 
         assert.equal(device.isOn(), true);
     });
