@@ -77,10 +77,25 @@ const setup = async (t: TestContext, options: { port?: number; start?: boolean }
     return { bus, nodeView, port, server };
 };
 
-const connect = (port: number, token: string, version = "1"): Promise<WebSocket> =>
+const connect = (port: number, protocols: string | string[], version = "1"): Promise<WebSocket> =>
+    new Promise((resolve, reject) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${port}/?v=${version}`, protocols);
+        ws.on("open", () => resolve(ws));
+        ws.on("error", reject);
+    });
+
+/** The HTTP status a refused upgrade answers with, read off the response itself. */
+const refusal = (port: number, token: string, version = "1"): Promise<number | undefined> =>
     new Promise((resolve, reject) => {
         const ws = new WebSocket(`ws://127.0.0.1:${port}/?v=${version}`, [token]);
-        ws.on("open", () => resolve(ws));
+        ws.on("unexpected-response", (request, response) => {
+            resolve(response.statusCode);
+            request.destroy();
+        });
+        ws.on("open", () => {
+            ws.close();
+            reject(new Error("the upgrade was accepted"));
+        });
         ws.on("error", reject);
     });
 
@@ -117,12 +132,22 @@ describe("createServer", () => {
 
     test("rejects a mismatched schema version with HTTP 426", async (t) => {
         const { port } = await setup(t);
-        await assert.rejects(connect(port, TOKEN, "999"), /426/);
+        assert.equal(await refusal(port, TOKEN, "999"), 426);
     });
 
     test("rejects an invalid auth token with HTTP 401", async (t) => {
         const { port } = await setup(t);
-        await assert.rejects(connect(port, "wrong-token"), /401/);
+        assert.equal(await refusal(port, "wrong-token"), 401);
+    });
+
+    test("finds the token among several offered subprotocols, and selects it", async (t) => {
+        // Sec-WebSocket-Protocol is a list, and the server reads it as one: the token counts
+        // wherever it sits, and it is what comes back selected, whatever else was offered.
+        const { port } = await setup(t);
+        const ws = await connect(port, ["home-chip", TOKEN]);
+        after(() => ws.close());
+
+        assert.equal(ws.protocol, TOKEN);
     });
 
     test("subscribe returns a snapshot of the current state", async (t) => {

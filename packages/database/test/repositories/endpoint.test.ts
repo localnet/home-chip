@@ -81,6 +81,20 @@ describe("SqliteEndpointRepository", () => {
         );
     });
 
+    test("findAll orders by node, then by number within it", () => {
+        // Saved against the expected order, and with ids running against it too, so neither the
+        // insertion order nor the id order can pass for the one asked of the query.
+        node.save({ id: "n2" as NodeId, matterId: 2n });
+        repository.save(endpoint("e1", "n2", 1, "C"));
+        repository.save(endpoint("e2", "n1", 2, "B"));
+        repository.save(endpoint("e3", "n1", 1, "A"));
+
+        assert.deepEqual(
+            repository.findAll().map((found) => found.id),
+            ["e3", "e2", "e1"],
+        );
+    });
+
     test("setName replaces the name and leaves the rest alone", () => {
         repository.save(endpoint("e1", "n1", 1, "Old"));
 

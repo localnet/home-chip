@@ -45,27 +45,32 @@ describe("parseClientMessage", () => {
 });
 
 describe("toJsonRpcError", () => {
-    test("maps a ValidationError to InvalidParams, keeping its field paths", () => {
-        const mapped = toJsonRpcError(new ValidationError("params invalid", { data: { field: "name" } }));
+    test("maps each kind of error to its JSON-RPC form", () => {
+        const cases = [
+            // Field paths travel in data, for a client to point at the offending input.
+            {
+                error: new ValidationError("params invalid", { data: { field: "name" } }),
+                expected: { code: JsonRpcErrorCode.InvalidParams, message: "params invalid", data: { field: "name" } },
+            },
+            // Any other AppError adds its own code to data, the one field a client branches on.
+            {
+                error: new NotFoundError("node not found", { data: { id: "n1" } }),
+                expected: {
+                    code: JsonRpcErrorCode.ApplicationError,
+                    message: "node not found",
+                    data: { id: "n1", code: "NOT_FOUND_ERROR" },
+                },
+            },
+            // Anything else keeps its message to itself: it was never written for a client, and
+            // may carry a host, a path or a secret.
+            {
+                error: new Error("connection failed at host=secret"),
+                expected: { code: JsonRpcErrorCode.InternalError, message: "Internal error" },
+            },
+        ];
 
-        assert.equal(mapped.code, JsonRpcErrorCode.InvalidParams);
-        assert.equal(mapped.message, "params invalid");
-        assert.deepEqual(mapped.data, { field: "name" });
-    });
-
-    test("maps any other AppError to ApplicationError, with its own code in data", () => {
-        const mapped = toJsonRpcError(new NotFoundError("node not found", { data: { id: "n1" } }));
-
-        assert.equal(mapped.code, JsonRpcErrorCode.ApplicationError);
-        assert.equal(mapped.message, "node not found");
-        assert.deepEqual(mapped.data, { id: "n1", code: "NOT_FOUND_ERROR" });
-    });
-
-    test("maps anything else to InternalError without leaking its message", () => {
-        const mapped = toJsonRpcError(new Error("connection failed at host=secret"));
-
-        assert.equal(mapped.code, JsonRpcErrorCode.InternalError);
-        assert.equal(mapped.message, "Internal error");
-        assert.equal(mapped.data, undefined);
+        for (const { error, expected } of cases) {
+            assert.deepEqual(toJsonRpcError(error), expected, error.constructor.name);
+        }
     });
 });
