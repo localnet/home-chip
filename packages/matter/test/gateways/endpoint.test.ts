@@ -2,6 +2,7 @@ import "../../src/sdk-config.ts";
 
 import { strict as assert } from "node:assert";
 import { describe, test } from "node:test";
+import { setTimeout as sleep } from "node:timers/promises";
 import { ValidationError } from "@home-chip/contract/common/errors.ts";
 import { createEndpointId, createNodeId, type EndpointId } from "@home-chip/contract/common/ids.ts";
 import {
@@ -17,7 +18,7 @@ import {
 import { Millis, NoResponseTimeoutError } from "@matter/main";
 import { type ClientNode, IcdPeerAsleepError } from "@matter/main/node";
 import { PeerAddress, PeerUnreachableError } from "@matter/main/protocol";
-import { FabricIndex, NodeId } from "@matter/main/types";
+import { FabricIndex, NodeId, Status } from "@matter/main/types";
 import { SdkEndpointGateway } from "../../src/gateways/endpoint.ts";
 import { SdkNodeGateway } from "../../src/gateways/node.ts";
 import { IdentityMap, type NodeIdentity } from "../../src/identity.ts";
@@ -149,14 +150,23 @@ describe("SdkEndpointGateway", () => {
             );
         });
 
-        test("throws WriteRejectedError when the device refuses the write", async (t) => {
-            // OnOff itself is read-only, so the device answers UNSUPPORTED_WRITE and the status
-            // is what tells a client which refusal it met.
+        test("throws WriteRejectedError, carrying the device's status, when it refuses the write", async (t) => {
+            // OnOff itself is read-only, so the device answers UnsupportedWrite. The status is what
+            // tells a client which refusal it met, and the gateway alone can carry it across.
             const { gateway, endpointId } = await setup(t);
 
             await assert.rejects(
                 () => gateway.write(endpointId, ON_OFF_CLUSTER, ON_OFF_ATTRIBUTE, true),
-                WriteRejectedError,
+                (error: unknown) => {
+                    assert.ok(error instanceof WriteRejectedError);
+                    assert.deepEqual(error.data, {
+                        endpointId,
+                        clusterId: ON_OFF_CLUSTER,
+                        attributeId: ON_OFF_ATTRIBUTE,
+                        statusCode: Status.UnsupportedWrite,
+                    });
+                    return true;
+                },
             );
         });
     });
@@ -191,10 +201,10 @@ describe("SdkEndpointGateway", () => {
             );
         });
 
-        test("throws CommandRejectedError when the device refuses the command", async (t) => {
+        test("throws CommandRejectedError, carrying the device's status, when it refuses the command", async (t) => {
             // A cluster the Matter model knows but this device does not carry, so resolution
-            // succeeds and the refusal comes back from the device as an Interaction Model status.
-            // The counterpart of a rejected write, and the reason both carry data.statusCode.
+            // succeeds and the refusal comes back from the device as UnsupportedCluster: the
+            // counterpart of a rejected write.
             const { gateway, endpointId } = await setup(t);
 
             await assert.rejects(
@@ -203,7 +213,16 @@ describe("SdkEndpointGateway", () => {
                         mode: 0,
                         amount: 1,
                     }),
-                CommandRejectedError,
+                (error: unknown) => {
+                    assert.ok(error instanceof CommandRejectedError);
+                    assert.deepEqual(error.data, {
+                        endpointId,
+                        clusterId: THERMOSTAT_CLUSTER,
+                        commandId: SETPOINT_RAISE_LOWER_COMMAND,
+                        statusCode: Status.UnsupportedCluster,
+                    });
+                    return true;
+                },
             );
         });
     });
@@ -279,64 +298,85 @@ describe("SdkEndpointGateway", () => {
             return { gateway, endpointId };
         }
 
-        test("maps IcdPeerAsleepError to EndpointAsleepError, preserving the cause", async () => {
-            const sdkError = new IcdPeerAsleepError(
-                PeerAddress({ fabricIndex: FabricIndex(1), nodeId: NodeId(1n) }),
-                Millis(1000),
-            );
-            const { gateway, endpointId } = gatewayThrowing(sdkError);
-            await assert.rejects(
-                () => gateway.invoke(endpointId, ON_OFF_CLUSTER, ON_COMMAND),
-                (error: unknown) => {
-                    assert.ok(error instanceof EndpointAsleepError);
-                    assert.equal(error.cause, sdkError);
-                    return true;
+        // Each operation catches on its own, and read's catch differs from the others' in letting
+        // its own not-found through, so every failure is driven through all three.
+        test("maps each SDK failure to its domain error, alike in read, write and invoke", async () => {
+            const failures = [
+                {
+                    sdkError: new IcdPeerAsleepError(
+                        PeerAddress({ fabricIndex: FabricIndex(1), nodeId: NodeId(1n) }),
+                        Millis(1000),
+                    ),
+                    expected: EndpointAsleepError,
                 },
-            );
-        });
+                { sdkError: new NoResponseTimeoutError("no response"), expected: EndpointOfflineError },
+                { sdkError: new PeerUnreachableError(Millis(5000)), expected: EndpointOfflineError },
+                { sdkError: new Error("encoding failure"), expected: InteractionFailedError },
+            ];
+            const operations = [
+                {
+                    name: "read",
+                    call: (gateway: SdkEndpointGateway, id: EndpointId) =>
+                        gateway.read(id, ON_OFF_CLUSTER, ON_OFF_ATTRIBUTE),
+                },
+                {
+                    name: "write",
+                    call: (gateway: SdkEndpointGateway, id: EndpointId) =>
+                        gateway.write(id, ON_OFF_CLUSTER, ON_TIME_ATTRIBUTE, 30),
+                },
+                {
+                    name: "invoke",
+                    call: (gateway: SdkEndpointGateway, id: EndpointId) =>
+                        gateway.invoke(id, ON_OFF_CLUSTER, ON_COMMAND),
+                },
+            ];
 
-        test("maps a no-response timeout (device offline) to EndpointOfflineError", async () => {
-            const { gateway, endpointId } = gatewayThrowing(new NoResponseTimeoutError("no response"));
-            await assert.rejects(() => gateway.invoke(endpointId, ON_OFF_CLUSTER, ON_COMMAND), EndpointOfflineError);
+            for (const { sdkError, expected } of failures) {
+                for (const { name, call } of operations) {
+                    const { gateway, endpointId } = gatewayThrowing(sdkError);
+                    await assert.rejects(
+                        () => call(gateway, endpointId),
+                        (error: unknown) => {
+                            const row = `${name} of ${sdkError.constructor.name}`;
+                            assert.ok(error instanceof expected, row);
+                            assert.equal(error.cause, sdkError, row);
+                            assert.deepEqual(error.data, { endpointId, clusterId: ON_OFF_CLUSTER }, row);
+                            return true;
+                        },
+                    );
+                }
+            }
         });
+    });
 
-        test("maps a transient peer communication failure to EndpointOfflineError", async () => {
-            const { gateway, endpointId } = gatewayThrowing(new PeerUnreachableError(Millis(5000)));
-            await assert.rejects(() => gateway.invoke(endpointId, ON_OFF_CLUSTER, ON_COMMAND), EndpointOfflineError);
-        });
+    describe("change events", () => {
+        test("reports a change on the device as endpoint:changed, in numeric ids", async (t) => {
+            // OnTime rather than OnOff: writing it changes that one attribute, where turning the
+            // light on also moves GlobalSceneControl, so the first event to arrive is known.
+            const { bus, gateway, endpointId } = await setup(t);
+            const before = Date.now();
+            const changed = new Promise<{ timestamp: number }>((resolve) => {
+                bus.on("endpoint:changed", resolve);
+            });
 
-        test("falls back to InteractionFailedError for any other SDK error", async () => {
-            const { gateway, endpointId } = gatewayThrowing(new Error("encoding failure"));
-            await assert.rejects(() => gateway.invoke(endpointId, ON_OFF_CLUSTER, ON_COMMAND), InteractionFailedError);
-        });
+            await gateway.write(endpointId, ON_OFF_CLUSTER, ON_TIME_ATTRIBUTE, 30);
+            const deadline = new AbortController();
+            const { timestamp, ...change } = await Promise.race([
+                changed,
+                sleep(10_000, undefined, { signal: deadline.signal }).then(() =>
+                    assert.fail("no endpoint:changed within 10 s"),
+                ),
+            ]).finally(() => deadline.abort());
 
-        test("read routes an asleep device through the same mapper (EndpointAsleepError)", async () => {
-            const sdkError = new IcdPeerAsleepError(
-                PeerAddress({ fabricIndex: FabricIndex(1), nodeId: NodeId(1n) }),
-                Millis(1000),
-            );
-            const { gateway, endpointId } = gatewayThrowing(sdkError);
-            await assert.rejects(() => gateway.read(endpointId, ON_OFF_CLUSTER, ON_OFF_ATTRIBUTE), EndpointAsleepError);
-        });
-
-        test("write routes an asleep device through the same mapper", async () => {
-            const sdkError = new IcdPeerAsleepError(
-                PeerAddress({ fabricIndex: FabricIndex(1), nodeId: NodeId(1n) }),
-                Millis(1000),
-            );
-            const { gateway, endpointId } = gatewayThrowing(sdkError);
-            await assert.rejects(
-                () => gateway.write(endpointId, ON_OFF_CLUSTER, ON_TIME_ATTRIBUTE, 30),
-                EndpointAsleepError,
-            );
-        });
-
-        test("read falls back to InteractionFailedError like invoke", async () => {
-            const { gateway, endpointId } = gatewayThrowing(new Error("decode failure"));
-            await assert.rejects(
-                () => gateway.read(endpointId, ON_OFF_CLUSTER, ON_OFF_ATTRIBUTE),
-                InteractionFailedError,
-            );
+            assert.deepEqual(change, {
+                endpointId,
+                clusterId: ON_OFF_CLUSTER,
+                attributeId: ON_TIME_ATTRIBUTE,
+                value: 30,
+            });
+            // Not pinned with mocked timers: the SDK runs on the same clock, and freezing it
+            // would stall the simulated network the change travels over.
+            assert.ok(timestamp >= before && timestamp <= Date.now());
         });
     });
 

@@ -3,19 +3,20 @@ import "../../src/sdk-config.ts";
 import { strict as assert } from "node:assert";
 import { describe, test } from "node:test";
 
-import { IntegrationError, ValidationError } from "@home-chip/contract/common/errors.ts";
+import { ValidationError } from "@home-chip/contract/common/errors.ts";
 import { createNodeId } from "@home-chip/contract/common/ids.ts";
 import {
     CommissioningFailedError,
     DecommissioningFailedError,
     DeviceAlreadyCommissionedError,
     NodeAsleepError,
+    NodeNotFoundError,
     NodeOfflineError,
     SetupCodeAmbiguousError,
 } from "@home-chip/contract/node/errors.ts";
-import { Millis, NoResponseTimeoutError } from "@matter/main";
+import { Millis, NoResponseTimeoutError, Observable } from "@matter/main";
 import { type ClientNode, IcdPeerAsleepError, type ServerNode } from "@matter/main/node";
-import { DeviceAlreadyCommissionedToThisFabricError, PeerAddress } from "@matter/main/protocol";
+import { DeviceAlreadyCommissionedToThisFabricError, PeerAddress, PeerUnreachableError } from "@matter/main/protocol";
 import { CommissioningFlowType, FabricIndex, NodeId, QrPairingCodeCodec, VendorId } from "@matter/main/types";
 
 import { SdkNodeGateway } from "../../src/gateways/node.ts";
@@ -30,60 +31,90 @@ import { TestLogger } from "../helpers/logger.ts";
  * (which accumulates sessions and subscriptions), and closing every node releases the
  * SDK timers that would otherwise keep the runner alive.
  */
-async function setup(t: { after(fn: () => Promise<void> | void): void }): Promise<{
+async function setup(
+    t: { after(fn: () => Promise<void> | void): void },
+    names?: Parameters<MatterTestNetwork["createOnOffLight"]>[0],
+): Promise<{
     bus: TestEventBus;
     gateway: SdkNodeGateway;
     pairingCode: string;
+    endpointNumber: number;
 }> {
     const network = new MatterTestNetwork();
     t.after(() => network.close());
 
-    const { pairingCode } = await network.createOnOffLight();
+    const { pairingCode, endpointNumber } = await network.createOnOffLight(names);
     const bus = new TestEventBus();
     const controller = await network.createController();
     const gateway = new SdkNodeGateway(new TestLogger(), bus, new IdentityMap(), controller);
-    return { bus, gateway, pairingCode };
+    return { bus, gateway, pairingCode, endpointNumber };
 }
 
 describe("SdkNodeGateway", () => {
     test("commission joins a device and returns node and endpoints", async (t) => {
-        const { gateway, pairingCode } = await setup(t);
+        const { gateway, pairingCode, endpointNumber } = await setup(t);
         const result = await gateway.commission(pairingCode);
 
         assert.match(result.node.id, /^[0-9a-f-]{36}$/);
         assert.equal(typeof result.node.matterId, "bigint");
+        // The light's endpoint alone: the root is the node itself, never a domain endpoint.
+        assert.deepEqual(
+            result.endpoints.map(({ id: _id, ...endpoint }) => endpoint),
+            [{ nodeId: result.node.id, matterNumber: endpointNumber, name: "Test OnOff Light", roomId: null }],
+        );
+    });
 
-        assert.ok(result.endpoints.length >= 1);
-        for (const endpoint of result.endpoints) {
-            assert.equal(endpoint.nodeId, result.node.id);
-            assert.equal(typeof endpoint.matterNumber, "number");
-            // Endpoint 0 (root) is never registered as a domain endpoint.
-            assert.notEqual(endpoint.matterNumber, 0);
-            // Model X: every endpoint has a generated, non-empty default name.
-            assert.equal(typeof endpoint.name, "string");
-            assert.ok(endpoint.name.length > 0, "expected a non-empty default name");
-            // The simulator leaves NodeLabel empty, so the default is the ProductName.
-            assert.equal(endpoint.name, "Test OnOff Light");
+    test("names a node's endpoints after its NodeLabel, else its ProductName, else a constant", async (t) => {
+        // A blank name counts as none, since it would give the endpoint nothing a user can see.
+        const cases = [
+            { names: { nodeLabel: "Kitchen light" }, expected: "Kitchen light" },
+            { names: { nodeLabel: "   " }, expected: "Test OnOff Light" },
+            { names: { nodeLabel: "", productName: "   " }, expected: "Matter Device" },
+        ];
+        const network = new MatterTestNetwork();
+        t.after(() => network.close());
+        const devices = [];
+        for (const { names, expected } of cases) {
+            const { pairingCode } = await network.createOnOffLight(names);
+            devices.push({ names, expected, pairingCode });
+        }
+        const controller = await network.createController();
+        const gateway = new SdkNodeGateway(new TestLogger(), new TestEventBus(), new IdentityMap(), controller);
+
+        for (const { names, expected, pairingCode } of devices) {
+            const result = await gateway.commission(pairingCode);
+            assert.deepEqual(
+                result.endpoints.map((endpoint) => endpoint.name),
+                [expected],
+                JSON.stringify(names),
+            );
         }
     });
 
     test("getInfo returns the device's basic information", async (t) => {
-        const { gateway, pairingCode } = await setup(t);
+        const { gateway, pairingCode } = await setup(t, { nodeLabel: "Kitchen light" });
+        const before = Date.now();
         const result = await gateway.commission(pairingCode);
-        const info = gateway.getInfo(result.node.id);
+        const after = Date.now();
 
-        assert.equal(info.id, result.node.id);
-        assert.equal(info.vendorName, "HomeChip Test");
-        assert.equal(info.productName, "Test OnOff Light");
-        assert.equal(info.vendorId, 0xfff1);
-        assert.equal(info.softwareVersionString, "1.0.0");
-        // Hexadecimal with the prefix, the form a client parses back with BigInt and the one the
-        // SDK's own log carries without it. Compared against the id the commissioning returned,
-        // so the assertion holds whatever node id the fabric assigned.
-        assert.equal(info.matterId, `0x${result.node.matterId.toString(16)}`);
-        assert.match(info.matterId, /^0x[0-9a-f]+$/);
-        // commissionedAt is served live from the SDK: a number when provided, else null.
-        assert.ok(info.commissionedAt === null || typeof info.commissionedAt === "number");
+        const { commissionedAt, ...info } = gateway.getInfo(result.node.id);
+
+        assert.deepEqual(info, {
+            id: result.node.id,
+            // Hexadecimal with the prefix, the form a client parses back with BigInt and the one
+            // the SDK's own log carries without it.
+            matterId: `0x${result.node.matterId.toString(16)}`,
+            label: "Kitchen light",
+            vendorName: "HomeChip Test",
+            productName: "Test OnOff Light",
+            vendorId: 0xfff1,
+            productId: 0x8000,
+            hardwareVersion: 2,
+            softwareVersion: 3,
+            softwareVersionString: "3.0.0",
+        });
+        // The SDK stamps it as the commissioning completes, so it can only fall inside the call.
+        assert.ok(commissionedAt !== null && commissionedAt >= before && commissionedAt <= after);
     });
 
     test("getInfo throws NodeNotFoundError for an unknown node", async (t) => {
@@ -155,6 +186,67 @@ describe("SdkNodeGateway", () => {
             gateway.start();
             gateway.stop();
             assert.equal(attachedCount(), 0);
+        });
+    });
+
+    describe("lifecycle events", () => {
+        /**
+         * A gateway watching one node whose online and offline are real SDK observables, fired by
+         * the test. `decommission` is what the node's own decommission() does when called.
+         */
+        function watching(decommission: () => Promise<void> = async () => {}) {
+            const nodeId = createNodeId();
+            const online = Observable();
+            const offline = Observable();
+            const node = { lifecycle: { online, offline }, decommission } as unknown as ClientNode;
+            const identity = new IdentityMap();
+            identity.addNode({ nodeId, node, endpoints: [] });
+            const bus = new TestEventBus();
+            const gateway = new SdkNodeGateway(new TestLogger(), bus, identity, undefined as never);
+            gateway.start();
+            return { bus, gateway, nodeId, online, offline };
+        }
+
+        test("announces each transition of a watched node", (t) => {
+            t.mock.timers.enable({ apis: ["Date"], now: 1_000 });
+            const { bus, nodeId, online, offline } = watching();
+
+            online.emit();
+            offline.emit();
+
+            assert.deepEqual(bus.emitted, [
+                { name: "node:connected", payload: { nodeId, timestamp: 1_000 } },
+                { name: "node:disconnected", payload: { nodeId, timestamp: 1_000 } },
+            ]);
+        });
+
+        test("does not report a node leaving the fabric as a disconnection", async (t) => {
+            // A real device rather than a fake, because the question is the SDK's: whether it takes
+            // the node offline while decommission() is still pending, which is the only window the
+            // gateway filters. A fake would answer it by construction.
+            const { bus, gateway, pairingCode } = await setup(t);
+            const result = await gateway.commission(pairingCode);
+            gateway.start();
+
+            await gateway.decommission(result.node.id);
+
+            assert.deepEqual(bus.emitted, []);
+        });
+
+        test("reports disconnections again once a decommissioning has failed", async () => {
+            // The node is still ours after the failure, so a later drop is news; a filter left
+            // armed would hide it for the rest of the run.
+            const { bus, gateway, nodeId, offline } = watching(async () => {
+                throw new NoResponseTimeoutError("no response");
+            });
+            await assert.rejects(() => gateway.decommission(nodeId));
+
+            offline.emit();
+
+            assert.deepEqual(
+                bus.emitted.map((event) => event.name),
+                ["node:disconnected"],
+            );
         });
     });
 
@@ -387,50 +479,40 @@ describe("SdkNodeGateway", () => {
             return { gateway, nodeId };
         }
 
-        test("maps IcdPeerAsleepError to NodeAsleepError, preserving the cause", async () => {
-            const sdkError = new IcdPeerAsleepError(
-                PeerAddress({ fabricIndex: FabricIndex(1), nodeId: NodeId(1n) }),
-                Millis(1000),
-            );
-            const { gateway, nodeId } = gatewayThrowing(sdkError);
-            await assert.rejects(
-                () => gateway.decommission(nodeId),
-                (error: unknown) => {
-                    assert.ok(error instanceof NodeAsleepError);
-                    assert.equal(error.cause, sdkError);
-                    return true;
+        test("maps each SDK failure to its domain error, keeping it as the cause", async () => {
+            const failures = [
+                {
+                    sdkError: new IcdPeerAsleepError(
+                        PeerAddress({ fabricIndex: FabricIndex(1), nodeId: NodeId(1n) }),
+                        Millis(1000),
+                    ),
+                    expected: NodeAsleepError,
                 },
-            );
-        });
+                { sdkError: new NoResponseTimeoutError("no response"), expected: NodeOfflineError },
+                { sdkError: new PeerUnreachableError(Millis(5000)), expected: NodeOfflineError },
+                { sdkError: new Error("fabric removal rejected"), expected: DecommissioningFailedError },
+            ];
 
-        test("maps a no-response timeout (device offline) to NodeOfflineError", async () => {
-            const { gateway, nodeId } = gatewayThrowing(new NoResponseTimeoutError("no response"));
-            await assert.rejects(() => gateway.decommission(nodeId), NodeOfflineError);
-        });
-
-        test("falls back to DecommissioningFailedError for any other SDK error", async () => {
-            const { gateway, nodeId } = gatewayThrowing(new Error("fabric removal rejected"));
-            await assert.rejects(() => gateway.decommission(nodeId), DecommissioningFailedError);
+            for (const { sdkError, expected } of failures) {
+                const { gateway, nodeId } = gatewayThrowing(sdkError);
+                await assert.rejects(
+                    () => gateway.decommission(nodeId),
+                    (error: unknown) => {
+                        const row = sdkError.constructor.name;
+                        assert.ok(error instanceof expected, row);
+                        assert.equal(error.cause, sdkError, row);
+                        assert.deepEqual(error.data, { id: nodeId }, row);
+                        return true;
+                    },
+                );
+            }
         });
 
         test("lets a domain error through unwrapped, so callers keep tolerating an absent node", async () => {
             const { gateway } = gatewayThrowing(new Error("unused"));
             // A node id the gateway does not hold: #requireNode throws NodeNotFoundError before the
             // SDK call, and the mapper must not turn it into an integration failure.
-            await assert.rejects(() => gateway.decommission(createNodeId()), /not found/);
-        });
-
-        test("does not classify a generic integration failure as unreachable", async () => {
-            const { gateway, nodeId } = gatewayThrowing(new Error("encoding failure"));
-            await assert.rejects(
-                () => gateway.decommission(nodeId),
-                (error: unknown) => {
-                    assert.ok(error instanceof IntegrationError);
-                    assert.equal(error instanceof NodeAsleepError, false);
-                    assert.equal(error instanceof NodeOfflineError, false);
-                    return true;
-                },
-            );
+            await assert.rejects(() => gateway.decommission(createNodeId()), NodeNotFoundError);
         });
     });
 });

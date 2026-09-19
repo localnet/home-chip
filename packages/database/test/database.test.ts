@@ -49,7 +49,11 @@ describe("database", () => {
 
             await provider.stop();
             await provider.start();
+            const room = provider.room;
             await provider.start();
+            // Unguarded, the second start() opens another connection over the first, which nothing
+            // closes again; every write would still land.
+            assert.equal(provider.room, room);
             provider.room.save({ id: "r1" as RoomId, name: "Sala" });
             await provider.stop();
             await provider.stop();

@@ -56,7 +56,11 @@ describe("stream", () => {
 
             await provider.stop();
             await provider.start();
+            const opened = provider.stream;
             await provider.start();
+            // Unguarded, the second start() opens another stream on the same file and the first
+            // stays open with nothing left to end it; the log would still read right.
+            assert.equal(provider.stream, opened);
             await provider.stop();
             await provider.stop();
 
@@ -65,6 +69,26 @@ describe("stream", () => {
             await provider.stop();
 
             assert.equal(readFileSync(join(directory, "hub.log"), "utf8"), "after the restart\n");
+        });
+
+        test("stop() resolves over a stream a mid-run failure already destroyed", { timeout: 5_000 }, async () => {
+            // Destroyed with an error, as a failed write leaves it, end() calls back with
+            // ERR_STREAM_DESTROYED. That names the consequence of a failure already reported to
+            // stderr, so stop() has nothing to add and a shutdown must not stall or fail on it.
+            const provider = createStreamProvider(join(temporaryDirectory(), "hub.log"), ROTATION);
+            await provider.start();
+            const stderr = mock.method(process.stderr, "write", () => true);
+
+            try {
+                const stream = provider.stream;
+                const closed = new Promise((resolve) => stream.once("close", resolve));
+                stream.destroy(new Error("disk full"));
+                await closed;
+
+                await provider.stop();
+            } finally {
+                stderr.mock.restore();
+            }
         });
 
         test("forwards stream failures after open to stderr instead of crashing", async () => {
