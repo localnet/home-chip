@@ -17,7 +17,7 @@
     "type": "tsc --noEmit",
     "build": "rolldown --config",
     "test": "node --test \"test/**/*.test.ts\"",
-    "e2e": "node --test --test-concurrency=1 \"e2e/**/*.test.ts\"",
+    "e2e": "node --test --test-concurrency=1 --test-force-exit \"e2e/**/*.test.ts\"",
     "start": "node --env-file-if-exists=.env src/main.ts"
   },
   "dependencies": {

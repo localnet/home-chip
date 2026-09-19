@@ -11,16 +11,17 @@ import { startHub } from "./helpers/hub.ts";
 /**
  * Undoing a commissioning.
  *
- * Skipped, not removed: the test passes and the process it runs in never exits afterwards, which
- * would hang the suite. The cause is upstream, reported as matter-js/matter.js#4412, and the
- * skip lifts when that closes. It stays in a file of its own so that re-enabling it puts only
- * this at risk — the runner gives each file a process.
+ * The device's side of it leaks until the SDK pin includes matter-js/matter.js#4436: losing our
+ * fabric factory-resets the simulated device, which leaves a share of the process-wide mDNS
+ * service that nothing closes, so the test process never exits on its own
+ * (matter-js/matter.js#4412). The test itself passes; the e2e script's --test-force-exit is what
+ * ends the process once it has. The hub's side is not excused: its exit is checked like every
+ * other hub's.
  *
- * Everything the hub owns is released: measured at around ten milliseconds, with nothing of the
- * controller, the device or the server left behind. Bisection puts the trigger on the
- * decommission call rather than on the assertions or the pairing that follows.
+ * It stays in a file of its own because the runner gives each file a process, so the leaked share
+ * cannot reach another file's devices.
  */
-describe("decommissioning", { skip: "hangs the process: matter-js/matter.js#4412" }, () => {
+describe("decommissioning", () => {
     test("removes the node, its endpoints, and the fabric the device joined", async (t) => {
         // The inverse of commissioning, and the half no unit suite reaches: those check that we
         // forget the node, never that the device does. Pairing it again is the proof — a device

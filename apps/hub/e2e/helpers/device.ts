@@ -99,6 +99,11 @@ export interface SimulatedDevice {
  * the first test needing discovery — the tests that only speak TCP pass, which is what makes that
  * failure confusing. A run therefore advertises its devices on whatever network it is on, and
  * sdk-config.ts keeps the environment of whoever runs it from pinning them anyway.
+ *
+ * A start that fails on mDNS never settles: the SDK reports the failure as an uncaught exception,
+ * which fails the test, and leaves the start pending with a socket open. Nothing here can close
+ * what the SDK did not finish opening, so the e2e script's --test-force-exit is what ends the
+ * process. That holds independently of matter-js/matter.js#4412, and outlives its fix.
  */
 export async function startDevice(t: TestContext): Promise<SimulatedDevice> {
     configureSdk();
