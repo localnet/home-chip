@@ -17,7 +17,7 @@
     "type": "tsc --noEmit",
     "test": "node --test \"test/**/*.test.ts\"",
     "e2e": "node --test --test-force-exit --test-concurrency=1 \"e2e/**/*.test.ts\"",
-    "build": "rolldown --config",
+    "build": "rolldown --config --configLoader native",
     "package": "npm pack --no-workspaces --pack-destination dist ./dist",
     "start": "node --env-file-if-exists=.env src/main.ts"
   },
