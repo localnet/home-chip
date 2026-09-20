@@ -180,7 +180,13 @@ export default defineConfig({
         // survives is what a stack trace needs: the names, the line breaks, and the region
         // markers naming the file each stretch of the bundle came from.
         comments: false,
+        // Maps without the sources: ~50 kB rather than ~280, and the sources' JSDoc stays out of
+        // the artifact as `comments: false` intends. Node reads them only when run with
+        // --enable-source-maps, turning a trace's bundle lines into source files and lines; the
+        // paths are relative to where the package was built, so reading those lines takes the
+        // repository at the commit that built it.
         sourcemap: true,
+        sourcemapExcludeSources: true,
         // The SDK isolation has to stay a module of its own. Bundled in with everything else its
         // assignments land in the body, and a body runs after every import of its module has been
         // evaluated — including the SDK it is meant to configure, which then refuses them. As a
