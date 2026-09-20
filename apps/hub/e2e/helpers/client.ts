@@ -1,5 +1,10 @@
+import { ValidationError } from "@home-chip/contract/common/errors.ts";
 import { SCHEMA_VERSION } from "@home-chip/contract/common/version.ts";
-import type { JsonRpcResponse } from "@home-chip/contract/server/schemas.ts";
+import {
+    type JsonRpcNotification,
+    type JsonRpcResponse,
+    validateServerMessage,
+} from "@home-chip/contract/server/schemas.ts";
 
 import { AUTH_TOKEN } from "./hub.ts";
 
@@ -33,6 +38,27 @@ export function opened(ws: WebSocket): Promise<void> {
 const REQUEST_TIMEOUT_MS = 30_000;
 
 /** Sends a request and resolves with the response carrying its id, ignoring notifications. */
+const errorMessage = (error: unknown): string => (error instanceof Error ? error.message : String(error));
+
+/**
+ * Reads a frame the way a client has to: through the contract's own validator, which is exported
+ * for consumers and which nothing in this repository otherwise calls. Casting instead would let a
+ * frame that does not answer the contract — a missing `jsonrpc`, an error without a code, a result
+ * where the schema wants none — travel into a test and fail it somewhere else, or pass.
+ *
+ * A refusal is rendered with the issues the validator collected, each with its path: the error's
+ * own message is "Invalid params" whatever was wrong with the frame.
+ */
+function frame(event: MessageEvent): JsonRpcResponse | JsonRpcNotification {
+    const raw = String(event.data);
+    try {
+        return validateServerMessage(JSON.parse(raw));
+    } catch (error) {
+        const issues = error instanceof ValidationError ? JSON.stringify(error.data) : String(error);
+        throw new Error(`${issues} for ${raw}`);
+    }
+}
+
 function request(ws: WebSocket, method: string, params?: unknown, id = "1"): Promise<JsonRpcResponse> {
     return new Promise((resolve, reject) => {
         const timer = globalThis.setTimeout(() => {
@@ -41,8 +67,18 @@ function request(ws: WebSocket, method: string, params?: unknown, id = "1"): Pro
         }, REQUEST_TIMEOUT_MS);
 
         const onMessage = (event: MessageEvent): void => {
-            const message = JSON.parse(String(event.data)) as JsonRpcResponse & { id?: unknown };
-            if (message.id !== id) {
+            let message: JsonRpcResponse | JsonRpcNotification;
+            try {
+                message = frame(event);
+            } catch (error) {
+                // Reported against the request in flight rather than thrown out of a listener,
+                // where it would arrive with no idea which call it answers.
+                globalThis.clearTimeout(timer);
+                ws.removeEventListener("message", onMessage);
+                reject(new Error(`${method} (id ${id}) met a frame the contract refuses: ${errorMessage(error)}`));
+                return;
+            }
+            if (!("id" in message) || message.id !== id) {
                 return;
             }
             globalThis.clearTimeout(timer);
@@ -87,9 +123,19 @@ export function collectNotifications(ws: WebSocket): (method: string, timeoutMs?
     const received: Notification[] = [];
     const waiting = new Map<string, (notification: Notification) => void>();
 
+    // A frame the contract refuses is kept rather than thrown here, and reported by whoever waits:
+    // a throw inside a listener belongs to no test in particular.
+    let refused: Error | undefined;
+
     ws.addEventListener("message", (event: MessageEvent) => {
-        const message = JSON.parse(String(event.data)) as { method?: string; params?: unknown };
-        if (message.method === undefined) {
+        let message: JsonRpcResponse | JsonRpcNotification;
+        try {
+            message = frame(event);
+        } catch (error) {
+            refused ??= new Error(`the hub pushed a frame the contract refuses: ${errorMessage(error)}`);
+            return;
+        }
+        if (!("method" in message)) {
             return;
         }
         const notification = { method: message.method, params: message.params };
@@ -98,13 +144,24 @@ export function collectNotifications(ws: WebSocket): (method: string, timeoutMs?
     });
 
     return (method, timeoutMs = 5_000) => {
+        if (refused !== undefined) {
+            return Promise.reject(refused);
+        }
         const already = received.find((notification) => notification.method === method);
         if (already !== undefined) {
             return Promise.resolve(already);
         }
         return new Promise((resolve, reject) => {
+            // Refused rather than replacing the waiter already there, which the map holds one of
+            // per name: the first would be stranded, and the check above would hand both the same
+            // arrival anyway. Two of a kind needs a waiter that queues them.
+            if (waiting.has(method)) {
+                reject(new Error(`${method} is already being waited for; this helper takes one waiter per method`));
+                return;
+            }
             const timer = globalThis.setTimeout(
-                () => reject(new Error(`${method} never arrived. Received: ${received.map((n) => n.method)}`)),
+                () =>
+                    reject(refused ?? new Error(`${method} never arrived. Received: ${received.map((n) => n.method)}`)),
                 timeoutMs,
             );
             waiting.set(method, (notification) => {
