@@ -1,3 +1,6 @@
+// Import the SDK isolation side effect before any "@matter/main" import (see sdk-config.ts).
+import "./sdk-config.ts";
+
 import { createWriteStream, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -15,6 +18,23 @@ import { AggregatorEndpoint } from "@matter/main/endpoints/aggregator";
 // second nested copy — two SDKs in one process, each with its own singletons. An import that
 // stops resolving fails loudly at the first run; a duplicated SDK would not fail at all.
 
+export interface SimulatedDevice {
+    /** The 11-digit code a user would read off the device's label. */
+    readonly manualPairingCode: string;
+    /** The `MT:` payload the same label carries as a QR image. */
+    readonly qrPairingCode: string;
+    /** Whether the light is on, read from the device's own state rather than through the hub. */
+    readonly isOn: () => boolean;
+    /** Switches the light at the device, as a wall switch would, without going through the hub. */
+    readonly setOn: (on: boolean) => Promise<void>;
+    readonly close: () => Promise<void>;
+}
+
+export interface SimulatedBridge {
+    readonly manualPairingCode: string;
+    readonly close: () => Promise<void>;
+}
+
 /**
  * The operational port the device listens on. The hub's controller takes the standard 5540 even
  * with commissioning disabled, so a device sharing the host needs one of its own.
@@ -24,7 +44,7 @@ const DEVICE_PORT = 5541;
 /** A second port, so a bridge and a light can run side by side when a test wants both. */
 const BRIDGE_PORT = 5542;
 
-/** Passcode and discriminator the SDK itself uses for development, and the pairing codes derive. */
+/** The passcode and discriminator both pairing codes derive from; any pair the spec allows would do. */
 const PASSCODE = 20202021;
 const DISCRIMINATOR = 3840;
 
@@ -58,32 +78,20 @@ function configureSdk(): void {
     Environment.default.vars.set("storage.path", root);
 
     // Kept rather than silenced: it is what diagnosed a device inheriting a previous fabric, and
-    // it costs nothing to write. The path is printed when a device fails to come up.
+    // it costs nothing to write. It lands beside the devices' storage, in the run's
+    // home-chip-e2e-devices-* directory under the system's temporary directory.
+    // Checked because the compiler asks, as packages/matter/src/environment.ts explains: the SDK
+    // throws for a destination it does not hold, so undefined never arrives. Throwing rather than
+    // skipping means that if it ever did, the run would say so instead of silently keeping no log.
     const destination = Logger.destinations.default;
-    if (destination !== undefined) {
-        const stream = createWriteStream(join(root, "matter.log"), { flags: "a" });
-        destination.write = (text: string) => {
-            stream.write(`${text}\n`);
-        };
+    if (destination === undefined) {
+        throw new Error("the SDK has no default log destination to redirect");
     }
+    const stream = createWriteStream(join(root, "matter.log"), { flags: "a" });
+    destination.write = (text: string) => {
+        stream.write(`${text}\n`);
+    };
     Logger.format = LogFormat.PLAIN;
-}
-
-export interface SimulatedBridge {
-    readonly manualPairingCode: string;
-    readonly close: () => Promise<void>;
-}
-
-export interface SimulatedDevice {
-    /** The 11-digit code a user would read off the device's label. */
-    readonly manualPairingCode: string;
-    /** The `MT:` payload the same label carries as a QR image. */
-    readonly qrPairingCode: string;
-    /** Whether the light is on, read from the device's own state rather than through the hub. */
-    readonly isOn: () => boolean;
-    /** Switches the light at the device, as a wall switch would, without going through the hub. */
-    readonly setOn: (on: boolean) => Promise<void>;
-    readonly close: () => Promise<void>;
 }
 
 /**
@@ -94,7 +102,13 @@ export interface SimulatedDevice {
  * Not confined to an interface. Matter carries mDNS over IPv6 multicast and Linux's loopback does
  * not carry multicast, so pinning both sides to it works on macOS and hangs on a Linux runner at
  * the first test needing discovery — the tests that only speak TCP pass, which is what makes that
- * failure confusing. A run therefore advertises its devices on whatever network it is on.
+ * failure confusing. A run therefore advertises its devices on whatever network it is on, and
+ * sdk-config.ts keeps the environment of whoever runs it from pinning them anyway.
+ *
+ * A start that fails on mDNS never settles: the SDK reports the failure as an uncaught exception,
+ * which fails the test, and leaves the start pending with a socket open. Nothing here can close
+ * what the SDK did not finish opening, so the e2e script's --test-force-exit is what ends the
+ * process. That holds independently of matter-js/matter.js#4412, and outlives its fix.
  */
 export async function startDevice(t: TestContext): Promise<SimulatedDevice> {
     configureSdk();

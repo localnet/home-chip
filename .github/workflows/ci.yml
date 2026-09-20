@@ -37,6 +37,7 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v7
         with:
@@ -49,6 +50,7 @@ jobs:
 
   hub:
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
         with:
@@ -58,4 +60,13 @@ jobs:
           node-version-file: package.json
       - run: npm ci
       - run: npm run --workspace=@home-chip/hub build
+      - run: npm run --workspace=@home-chip/hub package
+      # Installed as a host installs it, globally and outside the repository, where no workspace
+      # node_modules can supply what the generated manifest leaves out; the e2e then runs that
+      # installed command, its bin link and shebang, not dist/main.js. Under a prefix of its own
+      # rather than the runner's, so the same command installs locally without touching the
+      # machine's global packages.
+      - run: npm install --global --prefix "$RUNNER_TEMP/host" apps/hub/dist/home-chip-hub-*.tgz
       - run: npm run --workspace=@home-chip/hub e2e
+        env:
+          E2E_HUB_BIN: ${{ runner.temp }}/host/bin/home-chip
