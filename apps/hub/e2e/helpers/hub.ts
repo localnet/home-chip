@@ -1,7 +1,7 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import type { TestContext } from "node:test";
 import { setTimeout } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
@@ -20,8 +20,35 @@ export const AUTH_TOKEN = "e2e-test-token";
  */
 export const PORT = 18432;
 
-/** The built entry, which is what these tests run: the artefact, not the sources behind it. */
+/**
+ * The built entry. Nothing rebuilds it before a run, so build first: a stale one is tested
+ * without a word, sources and bundle disagreeing.
+ */
 const BUNDLE = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "dist", "main.js");
+
+/**
+ * The installed command to run instead of the bundle, when set. CI sets it to the `home-chip`
+ * command of the package installed globally outside the repository, which covers what dist/
+ * cannot: run
+ * from there, the bundle resolves every third-party import from the workspace's node_modules,
+ * so a dependency the generated manifest lacks goes unnoticed, and the `bin` link and its shebang
+ * are never used. Outside the HOMECHIP_ names on purpose, those being the hub's own configuration.
+ */
+const INSTALLED = process.env.E2E_HUB_BIN;
+
+/** What startHub spawns: the installed command as a host runs it, or the bundle under this Node. */
+const COMMAND: readonly [string, ...string[]] = (() => {
+    if (INSTALLED === undefined || INSTALLED === "") {
+        return [process.execPath, BUNDLE];
+    }
+    const bin = resolve(INSTALLED);
+    // Checked here rather than left to spawn, whose ENOENT would name neither the variable nor
+    // what it pointed at, and would surface as every test's hub failing to start.
+    if (!existsSync(bin)) {
+        throw new Error(`E2E_HUB_BIN points at ${bin}, which does not exist`);
+    }
+    return [bin];
+})();
 
 export interface RunningHub {
     readonly url: string;
@@ -71,10 +98,11 @@ export const freshRoot = (): string => mkdtempSync(join(tmpdir(), "home-chip-e2e
  * Boots a hub and stops it when the test ends, passed or failed: one left running would hold the
  * port and the mDNS socket against every test after it.
  *
- * The hub runs as its own process, started from the bundle the way a deployment does — an
- * environment, a config file, a signal to stop. Nothing here reaches into `src`, so what these
- * tests exercise includes the entry point and the build: a chunk that stopped being emitted, or
- * an entry that no longer resolves its environment, fails here rather than on a target host.
+ * The hub runs as its own process, started the way a deployment does — an environment, a config
+ * file, a signal to stop. Nothing here reaches into `src`, so what these tests exercise includes
+ * the entry point and the build: an entry that no longer resolves its environment fails here
+ * rather than on a target host. Run against an installed package (see INSTALLED), they exercise
+ * its manifest too.
  *
  * `root` is taken rather than always minted so a test can boot twice over the same directory,
  * which is what a service manager does on an upgrade.
@@ -92,7 +120,8 @@ export async function startHub(t: TestContext, options: { root?: string; port?: 
     // deployment would put it and the only way to say it to a process we do not construct.
     writeFileSync(join(root, "hub.json"), JSON.stringify({ server: { port } }));
 
-    const hub = spawn(process.execPath, [BUNDLE], {
+    const [command, ...args] = COMMAND;
+    const hub = spawn(command, args, {
         env: {
             ...process.env,
             HOMECHIP_CONFIG_PATH: environment.configPath,

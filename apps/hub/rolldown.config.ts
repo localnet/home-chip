@@ -18,6 +18,15 @@ interface Manifest {
 /** Our own packages, which have no published form and so are compiled into the bundle. */
 const WORKSPACE_SCOPE = "@home-chip/";
 
+/**
+ * The SDK isolation module, which the output must keep as a chunk of its own (see `codeSplitting`
+ * below). Named once so the split and the check on it cannot disagree about which module it is.
+ */
+const SDK_CONFIG_MODULE = /packages\/matter\/src\/sdk-config\.ts$/;
+
+/** The name the split gives that chunk, and so the stem of its file. */
+const SDK_CONFIG_CHUNK = "sdk-config";
+
 const here = dirname(fileURLToPath(import.meta.url));
 const workspace = join(here, "..", "..");
 const packages = join(workspace, "packages");
@@ -62,12 +71,19 @@ async function runtimeDependencies(hub: Manifest): Promise<Record<string, string
  * names an entry for importers a final application does not have. What it names instead is a
  * `bin`: the thing to run, reachable by name once installed, rather than a path into the package
  * that whoever writes the service unit would have to know.
+ *
+ * Its `files` are what the build emitted, read off the bundle rather than listed by hand, so a new
+ * chunk is packed without anyone adding it and nothing else left in the output directory rides
+ * along: a tarball packed into it, packed again, would otherwise travel inside the next one. npm
+ * adds the manifest and the licence on its own.
  */
 function deployable(): Plugin {
     return {
         name: "home-chip-deployable",
-        async generateBundle() {
+        async generateBundle(_options, bundle) {
             const hub = await readManifest(here);
+            // Taken before the two emits below, which npm packs whatever `files` says.
+            const files = Object.keys(bundle).sort();
 
             // The licence travels with what it licenses. npm picks one up on its own, but only from
             // the package root, and the root here is the output directory, not the repository's.
@@ -91,6 +107,7 @@ function deployable(): Plugin {
                         type: "module",
                         engines: hub.engines,
                         bin: { "home-chip": "main.js" },
+                        files,
                         dependencies: await runtimeDependencies(hub),
                     },
                     null,
@@ -101,10 +118,63 @@ function deployable(): Plugin {
     };
 }
 
+/**
+ * Whether `code`, past its shebang, opens with a bare import of `specifier`: the statement Node
+ * evaluates first. Exported for its test, which covers the layouts rolldown can produce and the
+ * refusal no build could be made to reach.
+ */
+export function importsFirst(code: string, specifier: string): boolean {
+    const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`^(?:#![^\n]*\n)?\\s*import\\s*(["'])${escaped}\\1\\s*;`).test(code);
+}
+
+/**
+ * Fails the build unless the SDK isolation came out as `codeSplitting` promises: a chunk holding
+ * that module alone, imported by the entry before anything else.
+ *
+ * The split fails silently. A regex that no longer matches — the module renamed or moved — leaves
+ * no group to fill, and rolldown builds the isolation into main.js without a warning; the hub then
+ * dies at boot with the SDK refusing the assignments. That surfaces only where the hub can start,
+ * which needs IPv6, and far from its cause. A module that gained an import of our own would pull
+ * it into the chunk ahead of the assignments. Checked here, each fails the build and says which.
+ *
+ * The entry's code is read rather than its `imports`, which rolldown does not document as
+ * ordered: the order of the import statements is what Node evaluates. It is matched as a statement
+ * rather than as a line, since how rolldown lays out its output — one import per line, or all of
+ * them on one — is not ours to depend on.
+ */
+function verifySdkIsolation(): Plugin {
+    return {
+        name: "home-chip-verify-sdk-isolation",
+        generateBundle(_options, bundle) {
+            const chunks = Object.values(bundle).filter((output) => output.type === "chunk");
+            const isolation = chunks.find((chunk) => chunk.name === SDK_CONFIG_CHUNK);
+            if (isolation === undefined) {
+                this.error(
+                    `no ${SDK_CONFIG_CHUNK} chunk was emitted: ${SDK_CONFIG_MODULE} matched no module, so the SDK isolation was bundled into main.js, where it runs too late. Point it at the isolation module.`,
+                );
+            }
+            const [only, ...others] = isolation.moduleIds;
+            if (only === undefined || !SDK_CONFIG_MODULE.test(only) || others.length > 0) {
+                this.error(
+                    `the ${SDK_CONFIG_CHUNK} chunk must hold the isolation module alone, and holds: ${isolation.moduleIds.join(", ")}`,
+                );
+            }
+
+            const entry = chunks.find((chunk) => chunk.isEntry);
+            if (entry === undefined || !importsFirst(entry.code, `./${isolation.fileName}`)) {
+                this.error(
+                    `the entry must import ./${isolation.fileName} before anything else, and begins with: ${entry?.code.slice(0, 200)}`,
+                );
+            }
+        },
+    };
+}
+
 export default defineConfig({
     input: join(here, "src", "main.ts"),
     platform: "node",
-    plugins: [deployable()],
+    plugins: [deployable(), verifySdkIsolation()],
     // Ours is compiled in; everything published stays a plain import, resolved from the manifest
     // the plugin writes. Stated as what to keep rather than what to leave out, so a new
     // third-party dependency is external without anyone remembering to say so.
@@ -132,7 +202,7 @@ export default defineConfig({
         // separate chunk the ordering ESM already gave us is restored: main.js imports it first,
         // and an imported module is evaluated before the import that follows.
         codeSplitting: {
-            groups: [{ name: "sdk-config", test: /packages\/matter\/src\/sdk-config\.ts$/ }],
+            groups: [{ name: SDK_CONFIG_CHUNK, test: SDK_CONFIG_MODULE }],
         },
     },
 });
