@@ -46,9 +46,10 @@ describe("commissioning", () => {
     });
 
     test("commissions a device from its QR payload", async (t) => {
-        // The same device, addressed the other way its label offers. The SDK decodes a manual
-        // code itself but reads a QR payload only through its own codec, so this is the path
-        // where that branch either works or does not.
+        // The same device, addressed the other way its label offers, and found another way: a
+        // manual code carries only the 4-bit short discriminator, a QR payload the full 12 bits,
+        // which the SDK searches for as the long one. Decoding the payload is unit-tested; this is
+        // the only place a device is discovered by the long discriminator over real mDNS.
         const hub = await startHub(t);
         const device = await startDevice(t);
         const ws = connect(hub.url);
@@ -95,7 +96,8 @@ describe("commissioning", () => {
         const endpoints = (await call(ws, "endpoint.list", {}, "endpoints")) as EndpointState[];
 
         // Two of them are the bridged lights; the third is the aggregator itself. Sorted because
-        // the list's order is the database's, which nothing here promises.
+        // the list is ordered by endpoint number, which the SDK assigns as the bridge is built,
+        // not this test.
         assert.deepEqual(
             endpoints.map((endpoint) => endpoint.deviceType).sort((a, b) => a - b),
             [AGGREGATOR, ON_OFF_LIGHT, ON_OFF_LIGHT],
@@ -105,9 +107,9 @@ describe("commissioning", () => {
     test("a change made at the device reaches a subscribed client", async (t) => {
         // The direction the hub exists for, and the one no other test covers: the device changes
         // on its own — a wall switch, not a command — and the change has to travel the whole way
-        // back. The Matter subscription reports it, the watcher translates it, the bus carries it,
-        // the registry applies it and the channel pushes it to a socket. Every piece has its own
-        // unit tests; the path through all of them has none.
+        // back. The Matter subscription reports it, the watcher translates it, the bus carries it
+        // and the channel pushes it to a socket. Every piece has its own unit tests; the path
+        // through all of them has none.
         const hub = await startHub(t);
         const device = await startDevice(t);
         const ws = connect(hub.url);

@@ -26,8 +26,9 @@ export function opened(ws: WebSocket): Promise<void> {
 /**
  * Long enough for the slowest operation the hub serves — a commissioning, which discovers the
  * device, runs PASE and reads its whole structure, and takes upwards of a second on a loaded
- * runner. Short enough that a request nobody is going to answer fails as one, rather than being
- * collected by the runner's own timeout three minutes later with nothing said about which.
+ * runner. Short enough that a request nobody is going to answer fails as one, naming itself:
+ * node --test has no timeout of its own, so it would otherwise hold the run until CI kills the
+ * job, with nothing said about which request.
  */
 const REQUEST_TIMEOUT_MS = 30_000;
 

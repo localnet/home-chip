@@ -38,9 +38,11 @@ const readManifest = async (path: string): Promise<Manifest> =>
 const ours = (id: string): boolean => id.startsWith(WORKSPACE_SCOPE);
 
 /**
- * What the bundle imports at run time: every dependency of our own packages that is not one of
- * our own packages. Read rather than restated, so a package that gains a dependency cannot leave
- * the deployed manifest short of it — a mismatch that would only surface on the target host.
+ * What the bundle imports at run time: every dependency of the packages the hub depends on that
+ * is not one of our own packages. Read rather than restated, so a package that gains a dependency
+ * cannot leave the deployed manifest short of it. Only the hub's direct dependencies are read,
+ * which today is every package; one reached only through another would be missed, and the e2e
+ * run against the installed package is what would say so.
  */
 async function runtimeDependencies(hub: Manifest): Promise<Record<string, string>> {
     const collected: Record<string, string> = {};

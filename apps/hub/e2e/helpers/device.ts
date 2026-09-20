@@ -27,7 +27,7 @@ const DEVICE_PORT = 5541;
 /** A second port, so a bridge and a light can run side by side when a test wants both. */
 const BRIDGE_PORT = 5542;
 
-/** Passcode and discriminator the SDK itself uses for development, and the pairing codes derive. */
+/** The passcode and discriminator both pairing codes derive from; any pair the spec allows would do. */
 const PASSCODE = 20202021;
 const DISCRIMINATOR = 3840;
 
@@ -61,14 +61,19 @@ function configureSdk(): void {
     Environment.default.vars.set("storage.path", root);
 
     // Kept rather than silenced: it is what diagnosed a device inheriting a previous fabric, and
-    // it costs nothing to write. The path is printed when a device fails to come up.
+    // it costs nothing to write. It lands beside the devices' storage, in the run's
+    // home-chip-e2e-devices-* directory under the system's temporary directory.
+    // Checked because the compiler asks, as packages/matter/src/environment.ts explains: the SDK
+    // throws for a destination it does not hold, so undefined never arrives. Throwing rather than
+    // skipping means that if it ever did, the run would say so instead of silently keeping no log.
     const destination = Logger.destinations.default;
-    if (destination !== undefined) {
-        const stream = createWriteStream(join(root, "matter.log"), { flags: "a" });
-        destination.write = (text: string) => {
-            stream.write(`${text}\n`);
-        };
+    if (destination === undefined) {
+        throw new Error("the SDK has no default log destination to redirect");
     }
+    const stream = createWriteStream(join(root, "matter.log"), { flags: "a" });
+    destination.write = (text: string) => {
+        stream.write(`${text}\n`);
+    };
     Logger.format = LogFormat.PLAIN;
 }
 
