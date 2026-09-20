@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import type { TestContext } from "node:test";
@@ -53,12 +53,16 @@ const COMMAND: readonly [string, ...string[]] = (() => {
 export interface RunningHub {
     readonly url: string;
     readonly environment: Environment;
-    /** What hub.log holds so far. Prefer awaitLog for anything the boot has just written. */
+    /**
+     * What hub.log holds so far, this hub's boot and any before it on the same directory. Prefer
+     * awaitLog for anything the boot has just written.
+     */
     readonly log: () => string;
     /**
-     * Waits for a line matching `pattern` to reach hub.log. The stream writes asynchronously, so
-     * a line the hub logged a moment ago need not be on disk yet: reading straight after the boot
-     * races it, and only the shutdown flushes what is pending.
+     * Waits for a line matching `pattern` to reach hub.log, among what this hub wrote: a restart
+     * reuses the file, and the boot before it is not what a wait is asking about. The stream
+     * writes asynchronously, so a line the hub logged a moment ago need not be on disk yet:
+     * reading straight after the boot races it, and only the shutdown flushes what is pending.
      */
     readonly awaitLog: (pattern: RegExp) => Promise<string>;
     /**
@@ -120,6 +124,13 @@ export async function startHub(t: TestContext, options: { root?: string; port?: 
     // deployment would put it and the only way to say it to a process we do not construct.
     writeFileSync(join(root, "hub.json"), JSON.stringify({ server: { port } }));
 
+    const logFile = join(environment.logPath, "hub.log");
+    // What the file already holds, measured before this hub can write a byte. A restart reuses
+    // the directory, so the previous hub's "ready" is sitting there, and awaitLog matching it
+    // would hand back a hub that is not listening yet — which is what a client then meets as a
+    // refused upgrade.
+    const written = existsSync(logFile) ? statSync(logFile).size : 0;
+
     const [command, ...args] = COMMAND;
     const hub = spawn(command, args, {
         env: {
@@ -142,7 +153,6 @@ export async function startHub(t: TestContext, options: { root?: string; port?: 
         output += chunk.toString();
     });
 
-    const logFile = join(environment.logPath, "hub.log");
     const log = (): string => {
         try {
             return readFileSync(logFile, "utf8");
@@ -150,6 +160,9 @@ export async function startHub(t: TestContext, options: { root?: string; port?: 
             return "";
         }
     };
+
+    /** What this hub wrote, which is what a wait on the log is asking about. */
+    const logSinceStart = (): string => log().slice(written);
 
     const exited = new Promise<Exit>((resolve) => hub.once("exit", (code, signal) => resolve({ code, signal })));
     const hasExited = (): boolean => hub.exitCode !== null || hub.signalCode !== null;
@@ -205,7 +218,7 @@ export async function startHub(t: TestContext, options: { root?: string; port?: 
     const awaitLog = async (pattern: RegExp): Promise<string> => {
         const deadline = Date.now() + LOG_TIMEOUT_MS;
         while (Date.now() < deadline) {
-            const contents = log();
+            const contents = logSinceStart();
             if (pattern.test(contents)) {
                 return contents;
             }
@@ -219,7 +232,9 @@ export async function startHub(t: TestContext, options: { root?: string; port?: 
             }
             await setTimeout(25);
         }
-        throw new Error(`${pattern} never reached hub.log. It holds:\n${log()}\nand the process said:\n${output}`);
+        throw new Error(
+            `${pattern} never reached hub.log. This hub wrote:\n${logSinceStart()}\nand the process said:\n${output}`,
+        );
     };
 
     await awaitLog(/NOTICE Hub ready/);

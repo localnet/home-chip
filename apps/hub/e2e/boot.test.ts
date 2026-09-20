@@ -42,10 +42,9 @@ describe("hub boot", () => {
 
         const second = await startHub(t, { root });
 
-        // The same file, so both boots are in it: the log was appended to rather than replaced,
-        // and the second boot came up, so the ports and the mDNS socket were released in time.
-        // That the first stopped cleanly, with 0, is stop()'s to check.
-        const contents = await second.awaitLog(/NOTICE Hub ready[\s\S]*NOTICE Hub ready/);
-        assert.equal(contents.match(/NOTICE Hub ready/g)?.length, 2);
+        // startHub waited for this boot's own ready line, so the second came up and the ports and
+        // the mDNS socket were released in time. Both lines are in the one file, so the log was
+        // appended to rather than replaced. That the first stopped cleanly, with 0, is stop()'s.
+        assert.equal(second.log().match(/NOTICE Hub ready/g)?.length, 2);
     });
 });

@@ -2,12 +2,12 @@ import { strict as assert } from "node:assert";
 import { describe, test } from "node:test";
 
 import type { EndpointState } from "@home-chip/contract/endpoint/types.ts";
-import type { NodeState } from "@home-chip/contract/node/types.ts";
+import type { NodeInfo, NodeState } from "@home-chip/contract/node/types.ts";
 import { SUBSCRIBE_METHOD } from "@home-chip/contract/snapshot.ts";
 
 import { call, collectNotifications, connect, opened } from "./helpers/client.ts";
 import { startBridge, startDevice } from "./helpers/device.ts";
-import { startHub } from "./helpers/hub.ts";
+import { freshRoot, startHub } from "./helpers/hub.ts";
 
 /**
  * The hub meeting a real device over the real network: discovery, PASE, the fabric, and the
@@ -151,5 +151,68 @@ describe("commissioning", () => {
         await call(ws, "endpoint.invoke", { id: endpointId, clusterId: ON_OFF_CLUSTER, commandId: ON_COMMAND }, "on");
 
         assert.equal(device.isOn(), true);
+    });
+    test("keeps a commissioned device as it was across a restart", async (t) => {
+        // What a service manager does on every upgrade, now with a node to keep. The boot test's
+        // restart has none, and the matter package cannot start a controller to try it: this is
+        // the only place the identity map is rebuilt from what the database and the SDK persisted.
+        const root = freshRoot();
+        const first = await startHub(t, { root });
+        const device = await startDevice(t);
+        const before = connect(first.url);
+        t.after(() => before.close());
+        await opened(before);
+
+        const nodeId = (await call(
+            before,
+            "node.commission",
+            { setupCode: device.manualPairingCode },
+            "commission",
+        )) as NodeState["id"];
+        const infoBefore = (await call(before, "node.getInfo", { id: nodeId }, "info")) as NodeInfo;
+        const endpointsBefore = (await call(before, "endpoint.list", {}, "endpoints")) as EndpointState[];
+        await first.stop();
+
+        const second = await startHub(t, { root });
+        const after = connect(second.url);
+        t.after(() => after.close());
+        await opened(after);
+
+        // The same node and the same endpoint ids a client already holds. Compared by id alone:
+        // the controller reconnects its peers on its own as it comes up, so whether the node
+        // reads reachable yet is a race this test does not run.
+        const nodes = (await call(after, "node.list", {}, "nodes")) as NodeState[];
+        assert.deepEqual(
+            nodes.map(({ id }) => id),
+            [nodeId],
+        );
+        assert.deepEqual(
+            ((await call(after, "endpoint.list", {}, "endpoints")) as EndpointState[]).map(({ id }) => id),
+            endpointsBefore.map(({ id }) => id),
+        );
+        // The commissioning time the SDK stamped when it commissioned, which only its own storage
+        // can have brought back: the contract says it is not persisted, and this is where that
+        // is measured.
+        const infoAfter = (await call(after, "node.getInfo", { id: nodeId }, "info")) as NodeInfo;
+        assert.equal(typeof infoBefore.commissionedAt, "number");
+        assert.equal(infoAfter.commissionedAt, infoBefore.commissionedAt);
+
+        // And still controllable: the command resolves through the rebuilt identity map and
+        // reaches the device over a session the second controller establishes on its own.
+        const endpointId = endpointsBefore[0]?.id;
+        assert.ok(endpointId !== undefined, `endpoint.list returned no endpoint: ${JSON.stringify(endpointsBefore)}`);
+        assert.equal(device.isOn(), false);
+        await call(
+            after,
+            "endpoint.invoke",
+            { id: endpointId, clusterId: ON_OFF_CLUSTER, commandId: ON_COMMAND },
+            "on",
+        );
+        assert.equal(device.isOn(), true);
+
+        // Stopped here rather than left to the teardown, which runs in registration order and
+        // would close the device first: every other test stops its hub before its device, and a
+        // controller closing on a peer already gone waits out retransmissions it need not.
+        await second.stop();
     });
 });
