@@ -8,24 +8,10 @@ import {
 
 import { AUTH_TOKEN } from "./hub.ts";
 
-/**
- * A client speaking the hub's handshake: the schema version in the query, the token as the sole
- * subprotocol — browsers being unable to set headers, which is why the server reads it there.
- *
- * Node's own WebSocket, so this app needs no client library of its own.
- */
-export function connect(url: string): WebSocket {
-    return new WebSocket(`${url}/?v=${SCHEMA_VERSION}`, [AUTH_TOKEN]);
-}
-
-/** Resolves when the socket opens, rejecting if the server refuses the upgrade. */
-export function opened(ws: WebSocket): Promise<void> {
-    return new Promise((resolve, reject) => {
-        ws.addEventListener("open", () => resolve(), { once: true });
-        // The native client reports a refused upgrade as a bare error with no status, so this can
-        // say no more than that. Which refusal, and why, is the server package's to test.
-        ws.addEventListener("error", () => reject(new Error("upgrade refused")), { once: true });
-    });
+/** A server-pushed notification: a message carrying a method and no id. */
+export interface Notification {
+    readonly method: string;
+    readonly params: unknown;
 }
 
 /**
@@ -91,6 +77,26 @@ function request(ws: WebSocket, method: string, params?: unknown, id = "1"): Pro
 }
 
 /**
+ * A client speaking the hub's handshake: the schema version in the query, the token as the sole
+ * subprotocol — browsers being unable to set headers, which is why the server reads it there.
+ *
+ * Node's own WebSocket, so this app needs no client library of its own.
+ */
+export function connect(url: string): WebSocket {
+    return new WebSocket(`${url}/?v=${SCHEMA_VERSION}`, [AUTH_TOKEN]);
+}
+
+/** Resolves when the socket opens, rejecting if the server refuses the upgrade. */
+export function opened(ws: WebSocket): Promise<void> {
+    return new Promise((resolve, reject) => {
+        ws.addEventListener("open", () => resolve(), { once: true });
+        // The native client reports a refused upgrade as a bare error with no status, so this can
+        // say no more than that. Which refusal, and why, is the server package's to test.
+        ws.addEventListener("error", () => reject(new Error("upgrade refused")), { once: true });
+    });
+}
+
+/**
  * Sends a request that is expected to succeed and resolves with its result. An error response
  * throws with the error as the hub sent it — code, message and `data`, which is where the domain
  * code and the offending ids travel — because a test that only asserts "result" is present fails
@@ -102,12 +108,6 @@ export async function call(ws: WebSocket, method: string, params?: unknown, id =
         throw new Error(`${method} (id ${id}) answered with an error: ${JSON.stringify(response.error)}`);
     }
     return response.result;
-}
-
-/** A server-pushed notification: a message carrying a method and no id. */
-export interface Notification {
-    readonly method: string;
-    readonly params: unknown;
 }
 
 /**

@@ -8,6 +8,33 @@ import { fileURLToPath } from "node:url";
 
 import type { Environment } from "@home-chip/config/environment.ts";
 
+export interface RunningHub {
+    readonly url: string;
+    readonly environment: Environment;
+    /**
+     * What hub.log holds so far, this hub's boot and any before it on the same directory. Prefer
+     * awaitLog for anything the boot has just written.
+     */
+    readonly log: () => string;
+    /**
+     * Waits for a line matching `pattern` to reach hub.log, among what this hub wrote: a restart
+     * reuses the file, and the boot before it is not what a wait is asking about. The stream
+     * writes asynchronously, so a line the hub logged a moment ago need not be on disk yet:
+     * reading straight after the boot races it, and only the shutdown flushes what is pending.
+     */
+    readonly awaitLog: (pattern: RegExp) => Promise<string>;
+    /**
+     * Stops the hub early, failing unless it exits with 0 within STOP_TIMEOUT_MS of the signal.
+     * Calling it twice is harmless, and so is leaving it to the teardown.
+     */
+    readonly stop: () => Promise<void>;
+}
+
+interface Exit {
+    readonly code: number | null;
+    readonly signal: NodeJS.Signals | null;
+}
+
 /** The token every test connects with, passed the way the entry point reads it. */
 export const AUTH_TOKEN = "e2e-test-token";
 
@@ -50,28 +77,6 @@ const COMMAND: readonly [string, ...string[]] = (() => {
     return [bin];
 })();
 
-export interface RunningHub {
-    readonly url: string;
-    readonly environment: Environment;
-    /**
-     * What hub.log holds so far, this hub's boot and any before it on the same directory. Prefer
-     * awaitLog for anything the boot has just written.
-     */
-    readonly log: () => string;
-    /**
-     * Waits for a line matching `pattern` to reach hub.log, among what this hub wrote: a restart
-     * reuses the file, and the boot before it is not what a wait is asking about. The stream
-     * writes asynchronously, so a line the hub logged a moment ago need not be on disk yet:
-     * reading straight after the boot races it, and only the shutdown flushes what is pending.
-     */
-    readonly awaitLog: (pattern: RegExp) => Promise<string>;
-    /**
-     * Stops the hub early, failing unless it exits with 0 within STOP_TIMEOUT_MS of the signal.
-     * Calling it twice is harmless, and so is leaving it to the teardown.
-     */
-    readonly stop: () => Promise<void>;
-}
-
 /** Long enough for a slow runner's disk, short enough to fail rather than hang the suite. */
 const LOG_TIMEOUT_MS = 15_000;
 
@@ -85,11 +90,6 @@ const STOP_TIMEOUT_MS = 10_000;
 
 /** How much of hub.log a failed stop quotes: enough to show which component was still stopping. */
 const LOG_TAIL_LINES = 20;
-
-interface Exit {
-    readonly code: number | null;
-    readonly signal: NodeJS.Signals | null;
-}
 
 const describeExit = ({ code, signal }: Exit): string => (signal !== null ? `signal ${signal}` : `code ${code}`);
 

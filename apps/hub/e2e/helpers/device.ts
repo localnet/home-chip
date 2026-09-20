@@ -18,6 +18,23 @@ import { AggregatorEndpoint } from "@matter/main/endpoints/aggregator";
 // second nested copy — two SDKs in one process, each with its own singletons. An import that
 // stops resolving fails loudly at the first run; a duplicated SDK would not fail at all.
 
+export interface SimulatedDevice {
+    /** The 11-digit code a user would read off the device's label. */
+    readonly manualPairingCode: string;
+    /** The `MT:` payload the same label carries as a QR image. */
+    readonly qrPairingCode: string;
+    /** Whether the light is on, read from the device's own state rather than through the hub. */
+    readonly isOn: () => boolean;
+    /** Switches the light at the device, as a wall switch would, without going through the hub. */
+    readonly setOn: (on: boolean) => Promise<void>;
+    readonly close: () => Promise<void>;
+}
+
+export interface SimulatedBridge {
+    readonly manualPairingCode: string;
+    readonly close: () => Promise<void>;
+}
+
 /**
  * The operational port the device listens on. The hub's controller takes the standard 5540 even
  * with commissioning disabled, so a device sharing the host needs one of its own.
@@ -75,23 +92,6 @@ function configureSdk(): void {
         stream.write(`${text}\n`);
     };
     Logger.format = LogFormat.PLAIN;
-}
-
-export interface SimulatedBridge {
-    readonly manualPairingCode: string;
-    readonly close: () => Promise<void>;
-}
-
-export interface SimulatedDevice {
-    /** The 11-digit code a user would read off the device's label. */
-    readonly manualPairingCode: string;
-    /** The `MT:` payload the same label carries as a QR image. */
-    readonly qrPairingCode: string;
-    /** Whether the light is on, read from the device's own state rather than through the hub. */
-    readonly isOn: () => boolean;
-    /** Switches the light at the device, as a wall switch would, without going through the hub. */
-    readonly setOn: (on: boolean) => Promise<void>;
-    readonly close: () => Promise<void>;
 }
 
 /**
