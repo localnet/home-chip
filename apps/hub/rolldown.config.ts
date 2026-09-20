@@ -119,29 +119,19 @@ function deployable(): Plugin {
 }
 
 /**
- * Whether `code`, past its shebang, opens with a bare import of `specifier`: the statement Node
- * evaluates first. Exported for its test, which covers the layouts rolldown can produce and the
- * refusal no build could be made to reach.
- */
-export function importsFirst(code: string, specifier: string): boolean {
-    const escaped = specifier.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    return new RegExp(`^(?:#![^\n]*\n)?\\s*import\\s*(["'])${escaped}\\1\\s*;`).test(code);
-}
-
-/**
  * Fails the build unless the SDK isolation came out as `codeSplitting` promises: a chunk holding
- * that module alone, imported by the entry before anything else.
+ * that module alone.
  *
  * The split fails silently. A regex that no longer matches — the module renamed or moved — leaves
  * no group to fill, and rolldown builds the isolation into main.js without a warning; the hub then
- * dies at boot with the SDK refusing the assignments. That surfaces only where the hub can start,
- * which needs IPv6, and far from its cause. A module that gained an import of our own would pull
- * it into the chunk ahead of the assignments. Checked here, each fails the build and says which.
+ * dies at boot with the SDK refusing the assignments. A module that gained an import of our own
+ * would pull it into the chunk ahead of the assignments, with the same result. The e2e catches
+ * both, but only where the hub can start, which needs IPv6, and as a hub that would not boot.
+ * Checked here, on every build, each fails the build and names its cause.
  *
- * The entry's code is read rather than its `imports`, which rolldown does not document as
- * ordered: the order of the import statements is what Node evaluates. It is matched as a statement
- * rather than as a line, since how rolldown lays out its output — one import per line, or all of
- * them on one — is not ours to depend on.
+ * That the entry imports the chunk first is not checked: rolldown places a chunk's import ahead of
+ * everything else on its own, no source change was found to move it, and a hub whose isolation ran
+ * late would fail the e2e at boot.
  */
 function verifySdkIsolation(): Plugin {
     return {
@@ -158,13 +148,6 @@ function verifySdkIsolation(): Plugin {
             if (only === undefined || !SDK_CONFIG_MODULE.test(only) || others.length > 0) {
                 this.error(
                     `the ${SDK_CONFIG_CHUNK} chunk must hold the isolation module alone, and holds: ${isolation.moduleIds.join(", ")}`,
-                );
-            }
-
-            const entry = chunks.find((chunk) => chunk.isEntry);
-            if (entry === undefined || !importsFirst(entry.code, `./${isolation.fileName}`)) {
-                this.error(
-                    `the entry must import ./${isolation.fileName} before anything else, and begins with: ${entry?.code.slice(0, 200)}`,
                 );
             }
         },
