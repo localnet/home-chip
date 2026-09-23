@@ -37,6 +37,7 @@ const setup = () => {
     const endpointRepository = new TestEndpointRepository();
     const roomRepository = new TestRoomRepository();
     const endpointGateway = new TestEndpointGateway();
+    const bus = new TestEventBus();
     const endpointView = new TestView<EndpointId, EndpointState>();
     const handlers = endpointHandlers({
         endpointView,
@@ -44,7 +45,7 @@ const setup = () => {
             endpointRepository,
             roomRepository,
             endpointGateway,
-            bus: new TestEventBus(),
+            bus,
         }),
     });
     return { endpointRepository, endpointGateway, endpointView, handlers };

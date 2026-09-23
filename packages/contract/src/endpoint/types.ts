@@ -48,7 +48,8 @@ export interface ClusterState {
 }
 
 /**
- * The live state of an endpoint, as served by `endpoint.list` and `endpoint.get`.
+ * The live state of an endpoint, as served by `endpoint.list` and `endpoint.get` and carried by
+ * the snapshot, `node:added` and `endpoint:added`.
  *
  * Reachability is absent because it is a node-level property: a frontend crosses `nodeId` with
  * the node's reachability and follows `node:connected` / `node:disconnected` to keep it current.

@@ -104,6 +104,31 @@ describe("commissioning", () => {
         );
     });
 
+    test("announces a bridge's endpoints as it records them", async (t) => {
+        // node:added carries the endpoints so a client need not ask for them, and the use-case
+        // composes them apart from the view that answers endpoint.list: two compositions of one
+        // state, each with its own unit tests, and this the only place they meet the same node. A
+        // bridge rather than a light, so that several endpoints, nested ones included, have to agree.
+        const hub = await startHub(t);
+        const bridge = await startBridge(t);
+        const ws = connect(hub.url);
+        t.after(() => ws.close());
+        await opened(ws);
+        const notification = collectNotifications(ws);
+        await call(ws, SUBSCRIBE_METHOD, undefined, "sub");
+        await call(ws, "node.commission", { setupCode: bridge.manualPairingCode }, "commission");
+
+        const announced = (await notification("node:added")).params as { endpoints: EndpointState[] };
+        const listed = (await call(ws, "endpoint.list", {}, "endpoints")) as EndpointState[];
+
+        // Compared whole, values included: the simulated bridge changes nothing on its own, so
+        // any difference is the two compositions disagreeing. Sorted by id because the event
+        // follows the SDK's endpoint index and the list the database's order.
+        const byId = (endpoints: EndpointState[]) => [...endpoints].sort((a, b) => a.id.localeCompare(b.id));
+        assert.equal(announced.endpoints.length, 3);
+        assert.deepEqual(byId(announced.endpoints), byId(listed));
+    });
+
     test("a change made at the device reaches a subscribed client", async (t) => {
         // The direction the hub exists for, and the one no other test covers: the device changes
         // on its own — a wall switch, not a command — and the change has to travel the whole way

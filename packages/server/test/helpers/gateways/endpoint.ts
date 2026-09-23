@@ -2,16 +2,11 @@ import type { EndpointId } from "@home-chip/contract/common/ids.ts";
 import type { EndpointGateway } from "@home-chip/contract/endpoint/ports.ts";
 import type { AttributeValue, EndpointShape } from "@home-chip/contract/endpoint/types.ts";
 
-// The use-cases call read, write and invoke. describe is the views' and fails loudly rather than
-// answering, so a use-case reaching for it is a test failure and not a silent pass.
-const unused = (name: string): never => {
-    throw new Error(`fake endpoint gateway: ${name} is not exercised by these tests`);
-};
-
 /**
- * EndpointGateway fake for the device use-case tests. read, write and invoke record what they
- * were called with, so a test can assert the delegation and its arguments; read answers with the
- * value set. describe is not exercised here.
+ * EndpointGateway fake for the use-case tests. read, write and invoke record what they were
+ * called with, so a test can assert the delegation and its arguments; read answers with the value
+ * set. describe answers with the shape set for an id and throws for any other, which is how a
+ * test makes an endpoint unresolvable.
  */
 export class TestEndpointGateway implements EndpointGateway {
     readonly invoked: {
@@ -32,17 +27,26 @@ export class TestEndpointGateway implements EndpointGateway {
         readonly value: AttributeValue;
     }[] = [];
     #readValue: AttributeValue = null;
+    readonly #shapes = new Map<EndpointId, EndpointShape>();
 
     setReadValue(value: AttributeValue): void {
         this.#readValue = value;
+    }
+
+    setShape(id: EndpointId, shape: EndpointShape): void {
+        this.#shapes.set(id, shape);
     }
 
     async invoke(id: EndpointId, clusterId: number, commandId: number, args?: AttributeValue): Promise<void> {
         this.invoked.push({ id, clusterId, commandId, args });
     }
 
-    describe(): EndpointShape {
-        return unused("describe");
+    describe(id: EndpointId): EndpointShape {
+        const shape = this.#shapes.get(id);
+        if (shape === undefined) {
+            throw new Error(`fake endpoint gateway: no shape set for ${id}`);
+        }
+        return shape;
     }
 
     async read(id: EndpointId, clusterId: number, attributeId: number): Promise<AttributeValue> {

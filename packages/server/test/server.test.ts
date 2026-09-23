@@ -59,6 +59,7 @@ const setup = async (t: TestContext, options: { port?: number; start?: boolean }
                 endpointRepository,
                 transactor: new TestTransactor(),
                 nodeGateway,
+                endpointGateway,
                 bus,
             }),
             decommissionUseCase: new DecommissionUseCase({ logger, nodeRepository, nodeGateway, bus }),

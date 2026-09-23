@@ -41,6 +41,8 @@ export class ComposedEndpointView implements EndpointView {
         return record === null ? null : this.#compose(record);
     }
 
+    // CommissionUseCase repeats this merge for the endpoints node:added carries: a change here
+    // belongs there too, and the e2e commissioning test checks the two agree.
     #compose(record: EndpointRecord): EndpointState | null {
         let shape: EndpointShape;
         try {

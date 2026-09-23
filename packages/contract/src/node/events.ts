@@ -1,4 +1,5 @@
 import type { NodeId } from "../common/ids.ts";
+import type { EndpointState } from "../endpoint/types.ts";
 import type { NodeState } from "./types.ts";
 
 /**
@@ -12,16 +13,21 @@ export interface NodeEvents {
     /**
      * A node was commissioned and now belongs to the fabric. Emitted after the commissioning
      * transaction persists node and endpoints, and the only event commissioning emits: the
-     * endpoints a node arrives with are persisted rather than announced, so a client reads them
-     * with `endpoint.list` on receipt.
+     * endpoints a node arrives with travel inside it, not as one `endpoint:added` each, that event
+     * being for an endpoint turning up on a node already known.
      *
-     * It carries the full state because the bus is synchronous and a handler cannot assemble it
-     * asynchronously: the server forwards this payload to its subscribers as it stands, with no
-     * read of its own. At this point `reachable` is always true, the session having just been
-     * established.
+     * It carries the full state, its endpoints' included, because the server forwards a payload to
+     * its subscribers as it stands, with no read of its own: what a client needs to render the node
+     * has to be in the event, or the client would have to ask for it, and a change could reach it
+     * while it waited. The endpoint states are composed in the same turn as the emit, so they are
+     * current as of the event, and every `endpoint:changed` for them follows it on the connection.
+     * `reachable` is the matter adapter's answer, as in every `NodeState`, and a client takes it
+     * as given rather than assuming it true: commissioning has just brought the node online,
+     * which is why it normally is.
      */
     "node:added": {
         readonly node: NodeState;
+        readonly endpoints: readonly EndpointState[];
         readonly timestamp: number;
     };
 
@@ -29,6 +35,11 @@ export interface NodeEvents {
      * A node was decommissioned and left the fabric. Its endpoints are deleted by the
      * `ON DELETE CASCADE` on `endpoints.node_id` and get no individual `endpoint:removed` events,
      * so a consumer drops everything tied to this nodeId on receipt.
+     *
+     * Not a mirror of `node:added`, which carries its endpoints because the client has never seen
+     * them. Here it holds them all already, each `EndpointState` naming its node, so the nodeId
+     * identifies every one and a list of their ids would add nothing but a second account of them
+     * that could disagree with the first.
      */
     "node:removed": {
         readonly nodeId: NodeId;
