@@ -105,10 +105,11 @@ describe("commissioning", () => {
     });
 
     test("announces a bridge's endpoints as it records them", async (t) => {
-        // node:added carries the endpoints so a client need not ask for them, and the use-case
-        // composes them apart from the view that answers endpoint.list: two compositions of one
-        // state, each with its own unit tests, and this the only place they meet the same node. A
-        // bridge rather than a light, so that several endpoints, nested ones included, have to agree.
+        // The one check that node:added carries every endpoint over a real commissioning. The
+        // payload is composed by reading the structure the SDK reports as complete once
+        // commissioning returns; an SDK release that broke that, reporting the root alone, would
+        // announce a bridge with none of its devices, and every unit test would pass. A bridge
+        // rather than a light, so that several endpoints, nested ones included, have to arrive.
         const hub = await startHub(t);
         const bridge = await startBridge(t);
         const ws = connect(hub.url);
@@ -121,9 +122,9 @@ describe("commissioning", () => {
         const announced = (await notification("node:added")).params as { endpoints: EndpointState[] };
         const listed = (await call(ws, "endpoint.list", {}, "endpoints")) as EndpointState[];
 
-        // Compared whole, values included: the simulated bridge changes nothing on its own, so
-        // any difference is the two compositions disagreeing. Sorted by id because the event
-        // follows the SDK's endpoint index and the list the database's order.
+        // What the client is handed matches what it would read. Compared whole, values included,
+        // the simulated bridge changing nothing on its own; sorted by id, the event following the
+        // SDK's endpoint index and the list the database's order.
         const byId = (endpoints: EndpointState[]) => [...endpoints].sort((a, b) => a.id.localeCompare(b.id));
         assert.equal(announced.endpoints.length, 3);
         assert.deepEqual(byId(announced.endpoints), byId(listed));

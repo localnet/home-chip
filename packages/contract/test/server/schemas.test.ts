@@ -2,6 +2,8 @@ import { strict as assert } from "node:assert";
 import { describe, test } from "node:test";
 
 import { ValidationError } from "../../src/common/errors.ts";
+import type { NodeId } from "../../src/common/ids.ts";
+import type { DomainEventMap } from "../../src/events.ts";
 import { validateClientMessage, validateServerMessage } from "../../src/server/schemas.ts";
 
 describe("server/schemas", () => {
@@ -93,11 +95,14 @@ describe("server/schemas", () => {
         });
 
         test("takes a notification, which carries a retransmitted bus event", () => {
-            const message = validateServerMessage({
-                jsonrpc: "2.0",
-                method: "node:added",
-                params: { nodeId: "abc", timestamp: 1234 },
-            });
+            // Typed as the event it names, so the example keeps the payload's real shape: the
+            // envelope checks params only as an object, and nothing else would catch it drifting.
+            const params: DomainEventMap["node:added"] = {
+                node: { id: "abc" as NodeId, reachable: true },
+                endpoints: [],
+                timestamp: 1234,
+            };
+            const message = validateServerMessage({ jsonrpc: "2.0", method: "node:added", params });
 
             assert.equal("method" in message, true);
         });

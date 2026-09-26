@@ -19,8 +19,11 @@ export interface NodeEvents {
      * It carries the full state, its endpoints' included, because the server forwards a payload to
      * its subscribers as it stands, with no read of its own: what a client needs to render the node
      * has to be in the event, or the client would have to ask for it, and a change could reach it
-     * while it waited. The endpoint states are composed in the same turn as the emit, so they are
-     * current as of the event, and every `endpoint:changed` for them follows it on the connection.
+     * while it waited. The endpoint states are composed in the same turn as the emit, from the
+     * cache the SDK updates before it announces a change. So an `endpoint:changed` that follows
+     * the event on the connection is no older than its payload, and one that precedes it — the
+     * adapter watches a node from the moment commissioning registers it, before this event — is
+     * already reflected in it; `endpoint:changed` says what a client does with each.
      * `reachable` is the matter adapter's answer, as in every `NodeState`, and a client takes it
      * as given rather than assuming it true: commissioning has just brought the node online,
      * which is why it normally is.

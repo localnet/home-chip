@@ -2,7 +2,8 @@ import { strict as assert } from "node:assert";
 import { createServer } from "node:net";
 import { after, describe, type TestContext, test } from "node:test";
 
-import { createNodeId, createRoomId, type NodeId } from "@home-chip/contract/common/ids.ts";
+import { createNodeId, createRoomId, type EndpointId, type NodeId } from "@home-chip/contract/common/ids.ts";
+import type { EndpointState } from "@home-chip/contract/endpoint/types.ts";
 import type { NodeState } from "@home-chip/contract/node/types.ts";
 import { SUBSCRIBE_METHOD } from "@home-chip/contract/snapshot.ts";
 import { createEventBus } from "@home-chip/registry/bus.ts";
@@ -47,11 +48,12 @@ const setup = async (t: TestContext, options: { port?: number; start?: boolean }
     const endpointGateway = new TestEndpointGateway();
     const bus = createEventBus(new TestLogger());
     const nodeView = new TestView<NodeId, NodeState>();
+    const endpointView = new TestView<EndpointId, EndpointState>();
     const port = options.port ?? (await freePort());
     const server = createServerProvider(
         {
             nodeView,
-            endpointView: new TestView(),
+            endpointView,
             roomView: new TestView(),
             commissionUseCase: new CommissionUseCase({
                 logger,
@@ -59,7 +61,7 @@ const setup = async (t: TestContext, options: { port?: number; start?: boolean }
                 endpointRepository,
                 transactor: new TestTransactor(),
                 nodeGateway,
-                endpointGateway,
+                endpointView,
                 bus,
             }),
             decommissionUseCase: new DecommissionUseCase({ logger, nodeRepository, nodeGateway, bus }),

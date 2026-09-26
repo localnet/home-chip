@@ -50,11 +50,14 @@ export interface EndpointEvents {
      * connected clients. The registry does not consume it: it reads the value from the SDK's cache
      * when a client next asks, and that cache is what the report just updated.
      *
-     * A client is given an endpoint before any change for it: the snapshot and `node:added` are
-     * each composed in the turn they are sent, and `endpoint:added` must be too. Should one arrive
-     * regardless for an `endpointId` the client does not hold, it drops it and loses nothing: the
-     * value is already in the cache, and any state later served for that endpoint is composed
-     * from it.
+     * Changes for a node's endpoints can reach a client before the state that introduces them:
+     * the adapter watches a node from the moment commissioning registers it, before `node:added`
+     * is emitted. That order needs no fixing. The SDK updates its cache before it announces a
+     * change, and every state a client is served is composed from that cache in the turn it is
+     * sent — the snapshot and `node:added` are, and `endpoint:added` must be. So a change for an
+     * `endpointId` the client does not hold is already in whatever state it is later served for
+     * that endpoint, and is dropped; a change for one it holds is no older than that state, and
+     * is applied.
      */
     "endpoint:changed": {
         readonly endpointId: EndpointId;

@@ -1,7 +1,7 @@
 import type { NodeId } from "@home-chip/contract/common/ids.ts";
 import type { Transactor } from "@home-chip/contract/database/ports.ts";
-import type { EndpointGateway, EndpointRepository } from "@home-chip/contract/endpoint/ports.ts";
-import type { EndpointRecord, EndpointShape, EndpointState } from "@home-chip/contract/endpoint/types.ts";
+import type { EndpointRepository, EndpointView } from "@home-chip/contract/endpoint/ports.ts";
+import type { EndpointState } from "@home-chip/contract/endpoint/types.ts";
 import type { DomainEventBus } from "@home-chip/contract/events.ts";
 import type { Logger } from "@home-chip/contract/logger/ports.ts";
 import type { NodeGateway, NodeRepository } from "@home-chip/contract/node/ports.ts";
@@ -14,7 +14,7 @@ export interface CommissionDeps {
     readonly endpointRepository: EndpointRepository;
     readonly transactor: Transactor;
     readonly nodeGateway: NodeGateway;
-    readonly endpointGateway: EndpointGateway;
+    readonly endpointView: EndpointView;
     readonly bus: DomainEventBus;
 }
 
@@ -38,7 +38,7 @@ export class CommissionUseCase {
     readonly #endpointRepository: EndpointRepository;
     readonly #transactor: Transactor;
     readonly #nodeGateway: NodeGateway;
-    readonly #endpointGateway: EndpointGateway;
+    readonly #endpointView: EndpointView;
     readonly #bus: DomainEventBus;
 
     constructor(deps: CommissionDeps) {
@@ -47,7 +47,7 @@ export class CommissionUseCase {
         this.#endpointRepository = deps.endpointRepository;
         this.#transactor = deps.transactor;
         this.#nodeGateway = deps.nodeGateway;
-        this.#endpointGateway = deps.endpointGateway;
+        this.#endpointView = deps.endpointView;
         this.#bus = deps.bus;
     }
 
@@ -77,55 +77,34 @@ export class CommissionUseCase {
     }
 
     /**
-     * Composes the node's state and emits it, and is synchronous on purpose. The payload is
-     * current as of the event only because no attribute report can land between the composition
-     * and the emit: every one lands after, and so reaches a client after the endpoint it concerns.
-     * An await in between would let a report slip through first; the client, not yet holding the
-     * endpoint, would drop it, and the payload would carry the value from before. Making this
-     * method async is the change that breaks the guarantee, and the compiler refuses an await
-     * here until someone makes it.
+     * Composes the node's state and emits it, and is synchronous on purpose. Reports keep landing
+     * until the composition, the adapter watching the node since commissioning registered it, and
+     * each is in the cache the composition reads before it is announced, so the payload reflects
+     * it. What must not happen is a report landing between the composition and the emit: it would
+     * miss the payload and could be announced ahead of the event, to a client that does not yet
+     * hold the endpoint and drops it, leaving the value from before. Making this method async is
+     * the change that lets one land there, and the compiler refuses an await here until someone
+     * makes it.
+     *
+     * Each endpoint is composed by the view that answers `endpoint.get`, so the event and every
+     * read agree by construction rather than by keeping two compositions in step. An endpoint the
+     * view cannot resolve comes back null and is left out, as `endpoint.list` leaves it out,
+     * rather than withholding an event whose node is already recorded.
      */
     #announce(result: CommissioningResult): void {
         const nodeId = result.node.id;
+        const endpoints: EndpointState[] = [];
+        for (const record of result.endpoints) {
+            const state = this.#endpointView.get(record.id);
+            if (state !== null) {
+                endpoints.push(state);
+            }
+        }
         this.#bus.emit("node:added", {
             node: { id: nodeId, reachable: this.#nodeGateway.isReachable(nodeId) },
-            endpoints: this.#composeEndpoints(result.endpoints),
+            endpoints,
             timestamp: Date.now(),
         });
-    }
-
-    /**
-     * The merge `ComposedEndpointView` makes for `endpoint.list`, repeated rather than shared: the
-     * one shared form would be a method on the view's port with this as its only caller, a
-     * normative surface to undo if it proves wrong, where this is private. A change to either
-     * belongs in both, and the e2e commissioning test checks they agree. Worth revisiting once
-     * dynamic bridge composition gives `endpoint:added` a composer of its own.
-     *
-     * An endpoint that cannot be resolved is left out, as the view leaves it out, rather than
-     * failing an event whose node is already recorded. Here it means more than it does there:
-     * the identity was registered moments ago from the very structure describe reads, so a miss
-     * is an SDK invariant broken, not the fabric and the database drifting apart, hence error.
-     */
-    #composeEndpoints(records: readonly EndpointRecord[]): EndpointState[] {
-        const states: EndpointState[] = [];
-        for (const record of records) {
-            let shape: EndpointShape;
-            try {
-                shape = this.#endpointGateway.describe(record.id);
-            } catch (error) {
-                this.#logger.error("commissioned endpoint unresolvable, left out of node:added", record.id, error);
-                continue;
-            }
-            states.push({
-                id: record.id,
-                nodeId: record.nodeId,
-                deviceType: shape.deviceType,
-                name: record.name,
-                roomId: record.roomId,
-                clusters: shape.clusters,
-            });
-        }
-        return states;
     }
 
     async #rollbackCommission(nodeId: NodeId): Promise<void> {

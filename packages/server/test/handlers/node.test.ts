@@ -11,7 +11,6 @@ import { CommissionUseCase } from "../../src/use-cases/commission.ts";
 import { DecommissionUseCase } from "../../src/use-cases/decommission.ts";
 import { NodeUseCase } from "../../src/use-cases/node.ts";
 import { TestEventBus } from "../helpers/bus.ts";
-import { TestEndpointGateway } from "../helpers/gateways/endpoint.ts";
 import { TestNodeGateway } from "../helpers/gateways/node.ts";
 import { TestLogger } from "../helpers/logger.ts";
 import { TestEndpointRepository } from "../helpers/repositories/endpoint.ts";
@@ -47,9 +46,7 @@ const setup = () => {
     const bus = new TestEventBus();
     const nodeRepository = new TestNodeRepository();
     const endpointRepository = new TestEndpointRepository();
-    const transactor = new TestTransactor();
     const nodeGateway = new TestNodeGateway();
-    const endpointGateway = new TestEndpointGateway();
     const nodeView = new TestView<NodeId, NodeState>();
     const handlers = nodeHandlers({
         nodeView,
@@ -57,9 +54,9 @@ const setup = () => {
             logger,
             nodeRepository,
             endpointRepository,
-            transactor,
+            transactor: new TestTransactor(),
             nodeGateway,
-            endpointGateway,
+            endpointView: new TestView(),
             bus,
         }),
         decommissionUseCase: new DecommissionUseCase({ logger, nodeRepository, nodeGateway, bus }),
