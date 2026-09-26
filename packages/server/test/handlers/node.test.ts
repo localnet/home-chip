@@ -56,6 +56,7 @@ const setup = () => {
             endpointRepository,
             transactor: new TestTransactor(),
             nodeGateway,
+            endpointView: new TestView(),
             bus,
         }),
         decommissionUseCase: new DecommissionUseCase({ logger, nodeRepository, nodeGateway, bus }),

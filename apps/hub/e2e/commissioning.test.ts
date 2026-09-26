@@ -104,6 +104,32 @@ describe("commissioning", () => {
         );
     });
 
+    test("announces a bridge's endpoints as it records them", async (t) => {
+        // The one check that node:added carries every endpoint over a real commissioning. The
+        // payload is composed by reading the structure the SDK reports as complete once
+        // commissioning returns; an SDK release that broke that, reporting the root alone, would
+        // announce a bridge with none of its devices, and every unit test would pass. A bridge
+        // rather than a light, so that several endpoints, nested ones included, have to arrive.
+        const hub = await startHub(t);
+        const bridge = await startBridge(t);
+        const ws = connect(hub.url);
+        t.after(() => ws.close());
+        await opened(ws);
+        const notification = collectNotifications(ws);
+        await call(ws, SUBSCRIBE_METHOD, undefined, "sub");
+        await call(ws, "node.commission", { setupCode: bridge.manualPairingCode }, "commission");
+
+        const announced = (await notification("node:added")).params as { endpoints: EndpointState[] };
+        const listed = (await call(ws, "endpoint.list", {}, "endpoints")) as EndpointState[];
+
+        // What the client is handed matches what it would read. Compared whole, values included,
+        // the simulated bridge changing nothing on its own; sorted by id, the event following the
+        // SDK's endpoint index and the list the database's order.
+        const byId = (endpoints: EndpointState[]) => [...endpoints].sort((a, b) => a.id.localeCompare(b.id));
+        assert.equal(announced.endpoints.length, 3);
+        assert.deepEqual(byId(announced.endpoints), byId(listed));
+    });
+
     test("a change made at the device reaches a subscribed client", async (t) => {
         // The direction the hub exists for, and the one no other test covers: the device changes
         // on its own — a wall switch, not a command — and the change has to travel the whole way

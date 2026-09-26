@@ -2,13 +2,14 @@ import { strict as assert } from "node:assert";
 import { describe, test } from "node:test";
 
 import type { NodeId } from "@home-chip/contract/common/ids.ts";
-import type { NodeState } from "@home-chip/contract/node/types.ts";
+import type { DomainEventMap } from "@home-chip/contract/events.ts";
 
 import { createEventBus } from "../src/bus.ts";
 import { TestLogger } from "./helpers/logger.ts";
 
-const nodeAdded = (nodeId: string): { node: NodeState; timestamp: number } => ({
+const nodeAdded = (nodeId: string): DomainEventMap["node:added"] => ({
     node: { id: nodeId as NodeId, reachable: true },
+    endpoints: [],
     timestamp: 0,
 });
 

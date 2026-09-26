@@ -129,6 +129,7 @@ class HomeChipHub implements Lifecycle {
                     endpointRepository: database.endpoint,
                     transactor: database.transactor,
                     nodeGateway: matter.node,
+                    endpointView: registry.endpoint,
                     bus,
                 }),
                 decommissionUseCase: new DecommissionUseCase({

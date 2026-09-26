@@ -12,14 +12,13 @@ import type { AttributeValue, EndpointState } from "./types.ts";
 export interface EndpointEvents {
     /**
      * An endpoint turned up on a node that was already known — a Matter Bridge exposing a device
-     * paired with it. Not the endpoints a node arrives with: commissioning persists those inside
-     * its transaction and announces the node alone, leaving a client to read them with
-     * `endpoint.list` when `node:added` lands. This event is for what appears afterwards.
+     * paired with it. Not the endpoints a node arrives with: those travel inside `node:added`. This
+     * event is for what appears afterwards.
      *
-     * It carries the full state rather than ids because the bus is synchronous — a handler cannot
-     * assemble the state asynchronously — and the server retransmits it so clients can render the
-     * new endpoint without a follow-up read. `roomId` is always `null`, assigning a room being a
-     * later user action reported through `endpoint:room-changed`.
+     * It carries the full state rather than ids for the reason `node:added` does: the server
+     * retransmits it as it stands, with no read of its own, and clients render the new endpoint
+     * without a follow-up read. `roomId` is always `null`, assigning a room being a later user
+     * action reported through `endpoint:room-changed`.
      *
      * Nothing emits it yet: dynamic bridge composition is not implemented, so a bridge's endpoints
      * are the ones the commissioning interview found and no others. It is declared and forwarded
@@ -50,6 +49,15 @@ export interface EndpointEvents {
      * matter adapter on every attribute report and consumed by the server, which notifies its
      * connected clients. The registry does not consume it: it reads the value from the SDK's cache
      * when a client next asks, and that cache is what the report just updated.
+     *
+     * Changes for a node's endpoints can reach a client before the state that introduces them:
+     * the adapter watches a node from the moment commissioning registers it, before `node:added`
+     * is emitted. That order needs no fixing. The SDK updates its cache before it announces a
+     * change, and every state a client is served is composed from that cache in the turn it is
+     * sent — the snapshot and `node:added` are, and `endpoint:added` must be. So a change for an
+     * `endpointId` the client does not hold is already in whatever state it is later served for
+     * that endpoint, and is dropped; a change for one it holds is no older than that state, and
+     * is applied.
      */
     "endpoint:changed": {
         readonly endpointId: EndpointId;
